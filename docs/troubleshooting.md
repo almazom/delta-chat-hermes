@@ -1,0 +1,208 @@
+# Troubleshooting
+
+Common issues and solutions for the Delta Chat plugin.
+
+## Plugin Not Loading
+
+**Symptom:** Plugin doesn't appear in `hermes plugins list`
+
+**Check:**
+```bash
+HERMES_PLUGINS_DEBUG=1 hermes plugins list
+```
+
+**Common causes:**
+- Plugin not in correct directory: `~/.hermes/plugins/deltachat/`
+- Missing `plugin.yaml` or `__init__.py`
+- Syntax error in plugin files
+- Missing dependencies
+
+**Fix:**
+```bash
+# Verify directory structure
+ls -la ~/.hermes/plugins/deltachat/
+
+# Check for syntax errors
+python3 -m py_compile ~/.hermes/plugins/deltachat/__init__.py
+python3 -m py_compile ~/.hermes/plugins/deltachat/adapter.py
+
+# Install dependencies
+pip install deltachat2
+```
+
+## Connection Errors
+
+**Symptom:** Gateway fails to connect to Delta Chat
+
+**Check:**
+```bash
+# View gateway logs
+tail -f ~/.hermes/profiles/<name>/logs/gateway.log
+
+# Verify RPC server is accessible
+which deltachat-rpc-server
+
+# Test RPC server manually
+deltachat-rpc-server --help
+```
+
+**Common causes:**
+- `deltachat-rpc-server` binary not in PATH
+- Binary not installed
+- Permission issues
+- Firewall blocking RPC communication
+
+**Fix:**
+```bash
+# Set explicit path in environment
+echo 'DELTACHAT_RPC_SERVER=/path/to/deltachat-rpc-server' >> ~/.hermes/.env
+
+# Or for a specific profile
+hermes -p my-profile config set env.DELTACHAT_RPC_SERVER /path/to/deltachat-rpc-server
+
+# Install binary
+pip install deltachat-rpc-server
+```
+
+## No Accounts Found
+
+**Symptom:** "No Delta Chat accounts found" error
+
+**Check:**
+```bash
+# Verify deltachat directory exists
+ls -la ~/.hermes/deltachat/
+
+# Or for specific profile
+ls -la ~/.hermes/profiles/<name>/deltachat/
+```
+
+**Common causes:**
+- No Delta Chat account created yet
+- Account created in different config directory
+- DC_ACCOUNTS_PATH pointing to wrong location
+
+**Fix:**
+```bash
+# Create an account using setup.py or Delta Chat desktop/mobile app first
+# Then the account will be in the correct directory
+```
+
+## Version Warning
+
+**Symptom:** "Delta Chat version X.X.X is newer than expected" warning
+
+**What it means:**
+- Your Delta Chat version is newer than what the plugin was tested with
+- Most features should still work
+- Some newer features may not be available through the plugin
+
+**Check your version:**
+```bash
+deltachat-rpc-server --version
+```
+
+**Solutions:**
+1. **Update the plugin:** Check if a newer version of this plugin exists
+2. **Update MIN_DC_VERSION:** Edit `adapter.py` to match your version:
+   ```python
+   MIN_DC_VERSION = "2.52.0"  # Change to your version
+   ```
+3. **Ignore it:** The warning is informational; connection will still work
+
+## Message Sending Fails
+
+**Symptom:** Messages don't send, `send()` returns error
+
+**Check:**
+```bash
+# Enable debug logging
+HERMES_LOG_LEVEL=DEBUG hermes gateway start
+
+# Check for specific errors in logs
+grep -i error ~/.hermes/profiles/<name>/logs/gateway.log
+```
+
+**Common causes:**
+- Invalid chat_id (must be integer string)
+- Account not connected
+- Network connectivity issues
+
+**Fix:**
+```bash
+# Verify chat_id is valid
+# Use get_chat_info() to check if chat exists
+```
+
+## File Sending Fails
+
+**Symptom:** `.xdc` or other files don't send
+
+**Check:**
+```bash
+# Verify file exists and is readable
+ls -la /path/to/your/file.xdc
+
+# Check file permissions
+file /path/to/your/file.xdc
+```
+
+**Common causes:**
+- File path is incorrect
+- File permissions prevent reading
+- File type not supported by Delta Chat
+
+**Fix:**
+```bash
+# Use absolute paths for files
+# Ensure file exists before sending
+```
+
+## Voice Call Issues
+
+**Symptom:** Incoming call events not handled
+
+**Note:** Voice call support is Phase 4 (stretch goal) and not yet implemented.
+
+**Current status:**
+- `IncomingCall` events are logged but not processed
+- WebRTC bridge not yet implemented
+- Requires aiortc and additional setup
+
+## Performance Issues
+
+**Symptom:** Slow message delivery, high CPU usage
+
+**Check:**
+```bash
+# Monitor RPC server process
+top -p $(pgrep -f deltachat-rpc-server)
+
+# Check event loop latency
+# Enable debug logging for timing info
+```
+
+**Common causes:**
+- Many active chats
+- Large message history
+- Slow network connection
+
+**Solutions:**
+- Limit number of active chats
+- Archive old messages
+- Use faster network connection
+
+## Cleanup
+
+**To completely remove the plugin:**
+```bash
+# Remove plugin files
+rm -rf ~/.hermes/plugins/deltachat/
+
+# Remove profile-specific config
+rm -rf ~/.hermes/profiles/*/deltachat/
+rm -rf ~/.hermes/deltachat/
+
+# Remove from enabled plugins
+hermes plugins disable deltachat
+```

@@ -1,0 +1,14 @@
+name: deltachat
+label: Delta Chat
+kind: platform
+version: 1.0.0
+description: Delta Chat messaging platform adapter for Hermes Agent. Supports text, webxdc mini apps, voice messages, images, and videos.
+author: Simon Laux
+requires_env:
+  - name: DELTACHAT_RPC_SERVER
+    description: "Path to deltachat-rpc-server binary"
+optional_env:
+  - name: DELTACHAT_HOME_CHANNEL
+    description: "Default chat for cron delivery"
+    prompt: "Home chat"
+    password: false
