@@ -155,6 +155,8 @@ with zipfile.ZipFile('/workspace/myapp.xdc', 'w', zipfile.ZIP_DEFLATED) as zf:
 
 `index.html` MUST be at the root of the archive (arcname `'index.html'`, not a subdirectory path). All output files must go to `/workspace/` — **not** `/tmp/`. The `/tmp/` directory is container-local tmpfs and the host cannot read it.
 
+**Always use ZIP format** — `.xdc` is a ZIP file. Never use tar, tar.gz, or any other archive format; webxdc clients will not open them.
+
 ### Validate before sending
 
 Always verify the archive before delivering. This catches wrong arcnames, missing `index.html`, and corrupt zips early:
