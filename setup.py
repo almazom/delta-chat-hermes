@@ -112,7 +112,7 @@ class DeltaChatAccountSetup:
             self.rpc.set_config(account_id, "displayname", name)
             print(f"Account created! ID: {account_id}")
         else:
-            account_id = accounts[0]['account_id']
+            account_id = accounts[0]['id']
             print(f"\nUsing existing account: {account_id}")
 
         # Check if transport is configured

@@ -211,7 +211,7 @@ class DeltaChatAdapter(BasePlatformAdapter):
             # Get or create account - use first available
             accounts = await self.rpc.get_all_accounts()
             if accounts:
-                self.account_id = accounts[0]["account_id"]
+                self.account_id = accounts[0]["id"]
                 logger.info(f"Using Delta Chat account: {self.account_id}")
             else:
                 logger.error(
@@ -302,7 +302,7 @@ class DeltaChatAdapter(BasePlatformAdapter):
             # Final fallback: list accounts and find ours
             accounts = await self.rpc.get_all_accounts()
             for acc in accounts:
-                if acc.get("account_id") == self.account_id:
+                if acc.get("id") == self.account_id:
                     name = acc.get("name", acc.get("display_name", ""))
                     server = acc.get("server", "")
                     if name and server:
