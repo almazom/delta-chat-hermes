@@ -3,10 +3,18 @@
 Integrates Delta Chat as a messaging platform using deltachat2 (direct JSON-RPC).
 """
 
+import html
 import os
+import sys
 import asyncio
 import logging
 from typing import Optional, Dict, Any
+
+# Add vendor directory to sys.path so vendored deltachat2 can be imported
+_plugin_dir = os.path.dirname(os.path.abspath(__file__))
+_vendor_dir = os.path.join(_plugin_dir, "vendor")
+if os.path.exists(_vendor_dir) and _vendor_dir not in sys.path:
+    sys.path.insert(0, _vendor_dir)
 
 from gateway.platforms.base import (
     BasePlatformAdapter,
@@ -17,6 +25,11 @@ from gateway.platforms.base import (
 from gateway.config import Platform, PlatformConfig
 
 logger = logging.getLogger(__name__)
+
+# Enable debug logging for RPC if requested
+if os.getenv("DELTACHAT_DEBUG"):
+    logging.getLogger("deltachat2").setLevel(logging.DEBUG)
+    logging.getLogger("deltachat2.IOTransport").setLevel(logging.DEBUG)
 
 # Minimum required Delta Chat core version
 # Plugin will NOT connect with older versions
@@ -31,20 +44,11 @@ def _check_dc2_available():
     global _DC2_AVAILABLE
     if _DC2_AVAILABLE is None:
         try:
-            # Try vendored version first
-            from vendor import deltachat2
-
+            import deltachat2
             _DC2_AVAILABLE = True
             return True
         except ImportError:
-            try:
-                # Fallback to installed version
-                import deltachat2
-
-                _DC2_AVAILABLE = True
-                return True
-            except ImportError:
-                _DC2_AVAILABLE = False
+            _DC2_AVAILABLE = False
     return _DC2_AVAILABLE
 
 
@@ -80,7 +84,7 @@ async def _check_dc_version(rpc) -> bool:
     """
     try:
         # Get system info which includes version
-        system_info = await rpc.call("get_system_info")
+        system_info = await rpc.get_system_info()
         dc_version_str = system_info.get("deltachat_version", "0.0.0")
         dc_version = _parse_version(dc_version_str)
         min_version = _parse_version(MIN_DC_VERSION)
@@ -120,7 +124,7 @@ class DeltaChatAdapter(BasePlatformAdapter):
         Args:
             config: Hermes PlatformConfig for this profile
         """
-        super().__init__(config, Platform("deltachat"))
+        super().__init__(config, Platform("deltachat-platform"))
         self.rpc = None
         self._transport = None
         self.account_id: Optional[int] = None
@@ -132,12 +136,12 @@ class DeltaChatAdapter(BasePlatformAdapter):
         """Get Delta Chat config directory path.
 
         Returns:
-            Path to Delta Chat config directory (<HERMES_HOME>/deltachat/)
+            Path to Delta Chat config directory (<HERMES_HOME>/deltachat-platform/)
         """
         if self._dc_config_dir is None:
             from gateway.config import get_hermes_home
 
-            self._dc_config_dir = os.path.join(get_hermes_home(), "deltachat")
+            self._dc_config_dir = os.path.join(get_hermes_home(), "deltachat-platform")
             # Ensure directory exists
             os.makedirs(self._dc_config_dir, exist_ok=True)
         return self._dc_config_dir
@@ -170,7 +174,7 @@ class DeltaChatAdapter(BasePlatformAdapter):
             True if connection successful, False otherwise
         """
         if not _check_dc2_available():
-            logger.error("deltachat2 is not installed. " "Run: pip install deltachat2")
+            logger.error("deltachat2 is not installed. Run: pip install deltachat2")
             return False
 
         try:
@@ -179,54 +183,60 @@ class DeltaChatAdapter(BasePlatformAdapter):
             logger.error(f"Failed to import deltachat2: {e}")
             return False
 
-        # Get config directory
-        dc_accounts_path = self._get_dc_config_dir()
-        logger.debug(f"Using DC accounts directory: {dc_accounts_path}")
-
-        # Get RPC server path
-        rpc_server_path = self._get_rpc_server_path()
-        logger.debug(f"Using RPC server: {rpc_server_path}")
-
-        # Initialize RPC client with deltachat2, passing accounts_dir to transport
         try:
-            from vendor.deltachat2.transport import IOTransport
+            # Get config directory
+            dc_accounts_path = self._get_dc_config_dir()
+            logger.debug(f"Using DC accounts directory: {dc_accounts_path}")
 
+            # Get RPC server path
+            rpc_server_path = self._get_rpc_server_path()
+            logger.debug(f"Using RPC server: {rpc_server_path}")
+
+            # Initialize RPC client with deltachat2, passing accounts_dir to transport
+            from deltachat2.transport import IOTransport
+
+            os.environ["DC_ACCOUNTS_PATH"] = dc_accounts_path
             self._transport = IOTransport(accounts_dir=dc_accounts_path)
             self._transport.start()
             self.rpc = deltachat2.Rpc(self._transport)
-        except ImportError:
-            # Fallback to direct initialization if vendor import fails
-            # This will use os.environ["DC_ACCOUNTS_PATH"]
-            os.environ["DC_ACCOUNTS_PATH"] = dc_accounts_path
-            self.rpc = deltachat2.Rpc(rpc_server_path)
-            try:
-                await self.rpc.start()
-            except AttributeError:
-                # Some versions may not need explicit start
-                pass
+
+            # Wait for RPC server to be ready
+            await asyncio.sleep(1)
 
             # Check version - REJECT if too old
             if not await _check_dc_version(self.rpc):
+                self._cleanup()
                 return False
 
             # Get or create account - use first available
-            accounts = await self.rpc.call("get_all_accounts")
+            accounts = await self.rpc.get_all_accounts()
             if accounts:
                 self.account_id = accounts[0]["account_id"]
                 logger.info(f"Using Delta Chat account: {self.account_id}")
             else:
                 logger.error(
                     f"No Delta Chat accounts found in {dc_accounts_path}. "
-                    "Create one via Delta Chat app first."
+                    "Run: python ~/.hermes/plugins/deltachat-platform/setup.py"
                 )
+                self._cleanup()
                 return False
+
+            # Start IO for the account to receive events
+            self.rpc.start_io(self.account_id)
+            logger.debug(f"Started IO for account {self.account_id}")
 
             # Start event listener
             self._running = True
             self._event_loop_task = asyncio.create_task(self._event_listener())
 
             self._mark_connected()
-            logger.info("Delta Chat connected successfully")
+
+            # Log the bot's address for reference
+            addr = await self.get_my_address()
+            if addr:
+                logger.info(f"Delta Chat connected successfully. Bot address: {addr}")
+            else:
+                logger.info("Delta Chat connected successfully")
             return True
 
         except Exception as e:
@@ -240,7 +250,6 @@ class DeltaChatAdapter(BasePlatformAdapter):
         if self._event_loop_task:
             self._event_loop_task.cancel()
             self._event_loop_task = None
-        # Close transport if we created it (vendored path)
         if self._transport:
             try:
                 self._transport.close()
@@ -255,6 +264,53 @@ class DeltaChatAdapter(BasePlatformAdapter):
         self._cleanup()
         self._mark_disconnected()
         logger.info("Delta Chat disconnected")
+
+    async def get_my_address(self) -> Optional[str]:
+        """Get the Delta Chat account address or SecureJoin link.
+
+        Returns:
+            SecureJoin link (e.g., https://delta.chat/s?pk=...) or address (e.g., bot@server.org)
+        """
+        if not self.rpc or not self.account_id:
+            return None
+
+        try:
+            # Try to get SecureJoin QR code content (which is the link)
+            try:
+                qr_content = await self.rpc.get_chat_securejoin_qr_code(
+                    self.account_id,
+                    None  # chat_id - None for account-level QR
+                )
+                if qr_content:
+                    return qr_content
+            except Exception:
+                pass
+
+            # Fallback: get account info which should include address
+            info = await self.rpc.get_account_info(self.account_id)
+            if info:
+                # Try different field names for address
+                address = info.get("address") or info.get("addr")
+                if address:
+                    return address
+                # Construct from name and server
+                name = info.get("name") or info.get("display_name", "")
+                server = info.get("server", "")
+                if name and server:
+                    return f"{name}@{server}"
+
+            # Final fallback: list accounts and find ours
+            accounts = await self.rpc.get_all_accounts()
+            for acc in accounts:
+                if acc.get("account_id") == self.account_id:
+                    name = acc.get("name", acc.get("display_name", ""))
+                    server = acc.get("server", "")
+                    if name and server:
+                        return f"{name}@{server}"
+        except Exception as e:
+            logger.debug(f"Failed to get account address: {e}")
+
+        return None
 
     def _format_html_message(self, text: str, max_lines: int = 40) -> tuple:
         """Format long messages with HTML for better readability in Delta Chat.
@@ -277,7 +333,8 @@ class DeltaChatAdapter(BasePlatformAdapter):
         # First max_lines as plain text
         text_part = "\n".join(lines[:max_lines])
 
-        # Full message as HTML with nice formatting
+        # Full message as HTML with nice formatting; escape to prevent injection
+        escaped = html.escape(text).replace("\n", "<br>\n")
         html_part = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -296,7 +353,7 @@ body {{
 </style>
 </head>
 <body>
-{text}
+{escaped}
 </body>
 </html>"""
 
@@ -332,29 +389,19 @@ body {{
 
             if html_part:
                 # Send with HTML using send_msg RPC
-                from gateway.platforms.base import MessageType
+                from deltachat2.types import MsgData, MessageViewtype
 
-                msg_id = await self.rpc.call(
-                    "send_msg",
-                    {
-                        "account_id": self.account_id,
-                        "chat_id": int(chat_id),
-                        "data": {
-                            "text": text_part,
-                            "html": html_part,
-                            "viewtype": "Text",
-                        },
-                    },
+                msg_id = await self.rpc.send_msg(
+                    self.account_id,
+                    int(chat_id),
+                    MsgData(text=text_part, html=html_part, viewtype=MessageViewtype.TEXT),
                 )
             else:
-                # Send as plain text
-                msg_id = await self.rpc.call(
-                    "send_text_message",
-                    {
-                        "account_id": self.account_id,
-                        "chat_id": int(chat_id),
-                        "message": content,
-                    },
+                # Send as plain text using misc_send_text_message
+                msg_id = await self.rpc.misc_send_text_message(
+                    self.account_id,
+                    int(chat_id),
+                    content,
                 )
 
             logger.debug(f"Sent message {msg_id} to chat {chat_id}")
@@ -393,14 +440,13 @@ body {{
                     error="Delta Chat not connected",
                 )
 
-            msg_id = await self.rpc.call(
-                "send_file",
-                {
-                    "account_id": self.account_id,
-                    "chat_id": int(chat_id),
-                    "file": file_path,
-                    "caption": caption or "",
-                },
+            # Use send_msg with file attachment
+            from deltachat2.types import MsgData
+
+            msg_id = await self.rpc.send_msg(
+                self.account_id,
+                int(chat_id),
+                MsgData(file=file_path, text=caption or ""),
             )
 
             logger.debug(f"Sent file {file_path} as message {msg_id} to chat {chat_id}")
@@ -446,17 +492,12 @@ body {{
                     error="Delta Chat not connected",
                 )
 
-            msg_id = await self.rpc.call(
-                "send_msg",
-                {
-                    "account_id": self.account_id,
-                    "chat_id": int(chat_id),
-                    "data": {
-                        "text": poi_name,
-                        "location": [longitude, latitude],
-                        "viewtype": "Text",
-                    },
-                },
+            from deltachat2.types import MsgData, MessageViewtype
+
+            msg_id = await self.rpc.send_msg(
+                self.account_id,
+                int(chat_id),
+                MsgData(text=poi_name, location=(longitude, latitude), viewtype=MessageViewtype.TEXT),
             )
 
             logger.debug(f"Sent location to chat {chat_id}")
@@ -477,10 +518,7 @@ body {{
         while self._running:
             try:
                 if self.account_id:
-                    event = await self.rpc.call(
-                        "wait_for_event",
-                        {"account_id": self.account_id},
-                    )
+                    event = await self.rpc.get_next_event(self.account_id)
                     await self._handle_dc_event(event)
             except asyncio.CancelledError:
                 break
@@ -494,21 +532,18 @@ body {{
         Args:
             event: Delta Chat event dictionary
         """
-        event_type = event.get("event_type")
+        from deltachat2.types import EventType
 
-        if event_type == "INCOMING_MSG":
+        event_kind = event.get("kind")
+
+        if event_kind == EventType.INCOMING_MSG:
             await self._handle_incoming_message(event)
-        elif event_type == "MSG_DELIVERED":
-            # Message successfully delivered
+        elif event_kind == EventType.MSG_DELIVERED:
             logger.debug(f"Message delivered: {event.get('msg_id')}")
-        elif event_type == "MSG_FAILED":
-            # Message failed to send
+        elif event_kind == EventType.MSG_FAILED:
             logger.warning(f"Message failed: {event.get('msg_id')}")
-        elif event_type == "IncomingCall":
-            # Voice call - Phase 4
-            logger.info(f"Incoming call event: {event}")
         else:
-            logger.debug(f"Unhandled event type: {event_type}")
+            logger.debug(f"Unhandled event type: {event_kind}")
 
     async def _handle_incoming_message(self, event: Dict[str, Any]) -> None:
         """Handle an incoming text message.
@@ -525,9 +560,9 @@ body {{
                 return
 
             # Get message details via direct RPC
-            msg = await self.rpc.call(
-                "get_message",
-                {"account_id": self.account_id, "msg_id": int(msg_id)},
+            msg = await self.rpc.get_message(
+                self.account_id,
+                int(msg_id),
             )
             if not msg:
                 logger.warning(f"Could not retrieve message {msg_id}")
@@ -540,17 +575,17 @@ body {{
                 return
 
             # Get chat info
-            chat = await self.rpc.call(
-                "get_chat",
-                {"account_id": self.account_id, "chat_id": int(chat_id)},
+            chat = await self.rpc.get_basic_chat_info(
+                self.account_id,
+                int(chat_id),
             )
 
             # Get sender info
             from_id = msg.get("from_id")
             if from_id:
-                contact = await self.rpc.call(
-                    "get_contact",
-                    {"account_id": self.account_id, "contact_id": int(from_id)},
+                contact = await self.rpc.get_contact(
+                    self.account_id,
+                    int(from_id),
                 )
                 user_name = contact.get("name", f"Contact {from_id}")
                 user_id = str(from_id)
@@ -630,9 +665,9 @@ body {{
         """
         try:
             if self.rpc and self.account_id:
-                chat = await self.rpc.call(
-                    "get_chat",
-                    {"account_id": self.account_id, "chat_id": int(chat_id)},
+                chat = await self.rpc.get_basic_chat_info(
+                    self.account_id,
+                    int(chat_id),
                 )
                 return {
                     "name": chat.get("name", chat_id),
@@ -654,12 +689,9 @@ body {{
         """
         try:
             if self.rpc and self.account_id:
-                await self.rpc.call(
-                    "delete_messages",
-                    {
-                        "account_id": self.account_id,
-                        "message_ids": [int(message_id)],
-                    },
+                await self.rpc.delete_messages(
+                    self.account_id,
+                    [int(message_id)],
                 )
                 logger.debug(f"Deleted message {message_id} from chat {chat_id}")
                 return True
@@ -722,13 +754,12 @@ def _env_enablement() -> Optional[Dict[str, Any]]:
 def register_platform(ctx):
     """Register Delta Chat platform adapter with Hermes."""
     ctx.register_platform(
-        name="deltachat",
+        name="deltachat-platform",
         label="Delta Chat",
         adapter_factory=lambda cfg: DeltaChatAdapter(cfg),
         check_fn=check_requirements,
         validate_config=validate_config,
         required_env=["DELTACHAT_RPC_SERVER"],
-        install_hint="pip install deltachat2",
         env_enablement_fn=_env_enablement,
         cron_deliver_env_var="DELTACHAT_HOME_CHANNEL",
         emoji="💬",

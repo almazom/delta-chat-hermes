@@ -35,8 +35,9 @@ class _Result(Event):
         self._value = value
         super().set()
 
-    def wait(self) -> Any:  # noqa
-        super().wait()
+    def wait(self, timeout: float = 60.0) -> Any:  # noqa
+        if not super().wait(timeout=timeout):
+            raise TimeoutError("RPC call timed out after %ss" % timeout)
         return self._value
 
 
@@ -88,7 +89,10 @@ class IOTransport:
     def close(self) -> None:
         """Terminate RPC server process and wait until the reader loop finishes."""
         self.closing = True
-        self.call("stop_io_for_all_accounts")
+        try:
+            self.call("stop_io_for_all_accounts")
+        except Exception:
+            pass
         assert self.process.stdin
         self.process.stdin.close()
         self.reader_thread.join()
@@ -142,9 +146,15 @@ class IOTransport:
             "params": args,
             "id": request_id,
         }
+        # Log the request for debugging
+        self.logger.debug(f"RPC request: method={method}, params={args}")
+
         result = self.pending_results[request_id] = _Result()
         self.request_queue.put(request)
         response = result.wait()
+
+        # Log the response for debugging
+        self.logger.debug(f"RPC response for {method}: {response}")
 
         if "error" in response:
             raise JsonRpcError(response["error"])

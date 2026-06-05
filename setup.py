@@ -19,7 +19,7 @@ def scrape_relay_servers(timeout: int = 10) -> List[str]:
         timeout: HTTP request timeout in seconds
 
     Returns:
-        List of relay server addresses (with https:// prefix)
+        List of bare relay domain names (e.g. "nine.testrun.org")
     """
     servers = []
 
@@ -36,7 +36,7 @@ def scrape_relay_servers(timeout: int = 10) -> List[str]:
         for server in matches:
             # Extract just the domain (remove https://)
             domain = server.replace("https://", "")
-            # Filter out non-relay domains
+            # Filter out non-relay domains; dedup as we go
             if (
                 domain
                 and domain not in servers
@@ -44,22 +44,13 @@ def scrape_relay_servers(timeout: int = 10) -> List[str]:
                 and not domain.startswith("assets")
                 and not domain.startswith("og-preview")
             ):
-                servers.append(server)  # Keep full URL
+                servers.append(domain)  # bare domain for dcaccount: URIs
 
-        # Deduplicate while preserving order
-        seen = set()
-        unique_servers = []
-        for s in servers:
-            if s not in seen:
-                seen.add(s)
-                unique_servers.append(s)
-
-        # If we found servers, return them. Otherwise return fallback.
-        return unique_servers if unique_servers else [f"https://{FALLBACK_RELAY}"]
+        return servers if servers else [FALLBACK_RELAY]
 
     except Exception:
         # Return just the fallback on any error
-        return [f"https://{FALLBACK_RELAY}"]
+        return [FALLBACK_RELAY]
 
 
 def get_relay_servers() -> List[str]:
@@ -88,141 +79,300 @@ class DeltaChatAccountSetup:
         Returns:
             List of account dictionaries
         """
-        return self.rpc.call("get_all_accounts")
+        return self.rpc.get_all_accounts()
 
-    def create_account_on_relay(
-        self, name: str, relay_server: Optional[str] = None
-    ) -> Optional[str]:
-        """Create account on a public relay.
-
-        Args:
-            name: Display name for the account
-            relay_server: Relay server to use (defaults to first available)
-
-        Returns:
-            Account ID or None if failed
-        """
-        try:
-            if relay_server is None:
-                servers = get_relay_servers()
-                relay_server = servers[0] if servers else FALLBACK_RELAY
-
-            # Create account on relay without personal info
-            account_id = self.rpc.call(
-                "add_account",
-                {
-                    "name": name,
-                    "server": relay_server,
-                },
-            )
-            return account_id
-        except Exception as e:
-            print(f"Error creating relay account: {e}")
-            return None
-
-    def create_account_manual(self, email: str, password: str) -> Optional[str]:
-        """Create account with email credentials.
-
-        Args:
-            email: Email address
-            password: Password
-
-        Returns:
-            Account ID or None if failed
-        """
-        try:
-            account_id = self.rpc.call(
-                "add_account",
-                {
-                    "email": email,
-                    "password": password,
-                },
-            )
-            return account_id
-        except Exception as e:
-            print(f"Error creating manual account: {e}")
-            return None
-
-    def interactive_setup(self) -> str:
+    def interactive_setup(self, profile_name: str = "default") -> Optional[str]:
         """Interactive account setup.
 
+        Always uses first account. Creates one if none exists.
+        Then checks if configured and sets up transport if needed.
+
+        Args:
+            profile_name: Hermes profile name for default account name suggestion
+
         Returns:
-            Account ID of created/selected account
+            Account ID of first account
         """
         print("=" * 60)
         print("Delta Chat Account Setup")
         print("=" * 60)
 
-        # Check existing accounts
+        # Get or create first account
         accounts = self.list_accounts()
-        if accounts:
-            print(f"\nFound {len(accounts)} existing account(s):")
-            for i, acc in enumerate(accounts):
-                print(
-                    f"  {i+1}. {acc.get('name', 'Unnamed')} (ID: {acc['account_id']})"
-                )
 
-            choice = input("\nUse existing account? [y/N]: ").strip().lower()
-            if choice == "y":
-                idx = int(input("Select account number: ").strip()) - 1
-                if 0 <= idx < len(accounts):
-                    return accounts[idx]["account_id"]
-
-        # Create new account
-        print("\nCreate New Account")
-        print("-" * 40)
-        print("1. Create on public relay (no personal info, just a name)")
-        print("2. Manual email credentials")
-
-        choice = input("\nSelect option [1/2]: ").strip()
-
-        if choice == "1":
-            name = input("Display name: ").strip()
+        if not accounts:
+            # Create new account
+            print("\nNo Delta Chat account found, creating one...")
+            default_name = profile_name if profile_name != "default" else "Hermes Bot"
+            name = input(f"\nDisplay name [{default_name}]: ").strip()
             if not name:
-                name = "Hermes Bot"
+                name = default_name
 
-            servers = get_relay_servers()
-
-            use_default = input("\nUse default relay? [Y/n]: ").strip().lower()
-            if use_default != "n":
-                relay = servers[0]
-            else:
-                relay = input(f"Enter relay server [{servers[0]}]: ").strip()
-                relay = relay or servers[0]
-
-            print(f"\nCreating account '{name}' on relay: {relay}")
-            account_id = self.create_account_on_relay(name, relay)
+            account_id = self.rpc.add_account()
+            self.rpc.set_config(account_id, "displayname", name)
             print(f"Account created! ID: {account_id}")
-            return account_id
-
-        elif choice == "2":
-            email = input("Email: ").strip()
-            password = input("Password: ").strip()
-            account_id = self.create_account_manual(email, password)
-            if account_id:
-                print(f"Account created! ID: {account_id}")
-                return account_id
-            else:
-                print("Failed to create account")
-                return None
         else:
-            print("Invalid choice")
-            # Don't recurse infinitely - return None after invalid input
-            return None
+            account_id = accounts[0]['account_id']
+            print(f"\nUsing existing account: {account_id}")
+
+        # Check if transport is configured
+        if not self.rpc.is_configured(account_id):
+            print("\nTransport not configured, setting up...")
+
+            # Ask for account type
+            while True:
+                print("\nCreate account using:")
+                print("-" * 40)
+                print("1. Public relay (recommended - no personal info needed)")
+                print("2. Existing email credentials")
+
+                account_type = input("\nSelect option [1/2, default=1]: ").strip()
+
+                if not account_type or account_type == "1":
+                    # Public relay
+                    servers = get_relay_servers()
+
+                    # Strip https:// for display
+                    display_servers = [s.replace("https://", "") for s in servers]
+
+                    print(f"\nSelect relay server:")
+                    print("-" * 40)
+                    print(f"  1. {display_servers[0]} (default)")
+                    for i, server in enumerate(display_servers[1:], 2):
+                        print(f"  {i}. {server}")
+                    print(f"  {len(servers) + 1}. Enter custom relay server")
+
+                    relay_choice = input(f"\nSelect relay [1-{len(servers) + 1}, default=1]: ").strip()
+
+                    if not relay_choice or relay_choice == "1":
+                        relay = servers[0]
+                    else:
+                        try:
+                            idx = int(relay_choice) - 1
+                            if 0 <= idx < len(servers):
+                                relay = servers[idx]
+                            elif idx == len(servers):
+                                relay = input(f"Enter relay server: ").strip()
+                                # Add https:// if user didn't include it
+                                if not relay.startswith("https://"):
+                                    relay = f"https://{relay}"
+                            else:
+                                print(f"Invalid choice, using default: {display_servers[0]}")
+                                relay = servers[0]
+                        except ValueError:
+                            print(f"Invalid choice, using default: {display_servers[0]}")
+                            relay = servers[0]
+
+                    # Strip https:// for QR code
+                    relay_host = relay.replace("https://", "")
+                    self.rpc.add_transport_from_qr(account_id, f"dcaccount:{relay_host}")
+                    print(f"Transport configured using relay: {relay_host}")
+                    break
+
+                elif account_type == "2":
+                    # Email credentials
+                    email = input("\nEmail: ").strip()
+                    password = input("Password: ").strip()
+
+                    self.rpc.add_or_update_transport(account_id, {"addr": email, "password": password})
+                    print(f"Transport configured using email: {email}")
+                    break
+
+                else:
+                    print("Invalid choice, please try again.")
+
+        # Offer to change display name
+        current_name = self.rpc.get_account_info(account_id).get('name', 'Unnamed')
+        change_name = input(f"\nCurrent display name: '{current_name}'. Change? [y/N]: ").strip().lower()
+        if change_name == "y":
+            new_name = input(f"New display name [{current_name}]: ").strip()
+            if new_name and new_name != current_name:
+                try:
+                    self.rpc.set_config(account_id, "displayname", new_name)
+                    print(f"Name changed to: {new_name}")
+                except Exception as e:
+                    print(f"Failed to change name: {e}")
+
+        return account_id
 
 
-def setup_account(rpc) -> Optional[str]:
+
+
+def setup_account(rpc, profile_name: str = "default") -> Optional[str]:
     """Convenience function for account setup.
 
     Args:
         rpc: RPC instance
+        profile_name: Hermes profile name for default account name
 
     Returns:
         Account ID or None if failed
     """
     try:
         setup = DeltaChatAccountSetup(rpc)
-        return setup.interactive_setup()
+        return setup.interactive_setup(profile_name)
     except Exception as e:
         print(f"Setup failed: {e}")
         return None
+
+
+def get_profiles():
+    """Get list of Hermes profile directories."""
+    import os
+    default_profile = os.path.expanduser("~/.hermes")
+    profiles_dir = os.path.join(os.path.expanduser("~/.hermes"), "profiles")
+    profiles = []
+
+    if os.path.exists(default_profile):
+        profiles.append(("default", default_profile))
+
+    if os.path.exists(profiles_dir):
+        for name in sorted(os.listdir(profiles_dir)):
+            profile_path = os.path.join(profiles_dir, name)
+            if os.path.isdir(profile_path):
+                profiles.append((name, profile_path))
+
+    return profiles
+
+
+def select_profile():
+    """Interactive profile selection.
+
+    Returns:
+        Tuple of (profile_name, profile_path)
+    """
+    import os
+    profiles = get_profiles()
+
+    if not profiles:
+        return ("default", os.path.expanduser("~/.hermes"))
+
+    print("\nSelect Hermes Profile:")
+    print("-" * 40)
+    for i, (name, path) in enumerate(profiles, 1):
+        print(f"  {i}. {name} ({path})")
+
+    choice = input(f"\nSelect profile [1-{len(profiles)}, default=1]: ").strip()
+
+    if not choice:
+        return profiles[0]
+
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(profiles):
+            return profiles[idx]
+    except ValueError:
+        pass
+
+    print(f"Invalid choice, using default: {profiles[0][1]}")
+    return profiles[0]
+
+
+def get_account_address(rpc, account_id: int) -> Optional[str]:
+    """Get the Delta Chat account address or SecureJoin link.
+
+    Args:
+        rpc: RPC instance
+        account_id: The account ID
+
+    Returns:
+        SecureJoin link or account address (e.g., mybot@nine.testrun.org)
+    """
+    try:
+        # Try to get SecureJoin QR code content (which is the link)
+        try:
+            qr_content = rpc.get_chat_securejoin_qr_code(
+                account_id,
+                None  # chat_id - None for account-level QR
+            )
+            if qr_content:
+                return qr_content
+        except Exception:
+            pass
+
+        # Fallback: get account info which should include address
+        info = rpc.get_account_info(account_id)
+        if info:
+            # Try different field names for address
+            address = info.get("address") or info.get("addr")
+            if address:
+                return address
+            # Fallback: construct from name and server
+            name = info.get("name", info.get("display_name", ""))
+            server = info.get("server", "")
+            if name and server:
+                return f"{name}@{server}"
+    except Exception:
+        pass
+    return None
+
+
+if __name__ == "__main__":
+    import sys
+    import os
+    import time
+
+    # Try to import deltachat2 from vendor or system
+    import sys as _sys
+    plugin_dir = os.path.dirname(os.path.abspath(__file__))
+    vendor_dir = os.path.join(plugin_dir, "vendor")
+    if os.path.exists(vendor_dir) and vendor_dir not in _sys.path:
+        _sys.path.insert(0, vendor_dir)
+
+    try:
+        import deltachat2
+        from deltachat2.transport import IOTransport
+    except ImportError as e:
+        print(f"Error: {e}. Make sure the vendored directory is accessible.")
+        sys.exit(1)
+
+    # Enable debug logging for RPC if requested
+    import logging
+    if os.getenv("DELTACHAT_DEBUG"):
+        logging.getLogger("deltachat2").setLevel(logging.DEBUG)
+        logging.getLogger("deltachat2.IOTransport").setLevel(logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG)
+
+    # Auto-detect and select profile
+    profile_name, hermes_home = select_profile()
+
+    # Set accounts directory
+    dc_accounts_path = os.path.join(hermes_home, "deltachat-platform")
+    os.makedirs(dc_accounts_path, exist_ok=True)
+    os.environ["DC_ACCOUNTS_PATH"] = dc_accounts_path
+    os.environ["HERMES_HOME"] = hermes_home
+
+    print(f"\nUsing profile: {hermes_home}")
+    print(f"Account directory: {dc_accounts_path}")
+
+    # Get RPC server path
+    rpc_server = os.getenv("DELTACHAT_RPC_SERVER", "deltachat-rpc-server")
+
+    # Initialize transport and RPC
+    transport = IOTransport(accounts_dir=dc_accounts_path)
+    transport.start()
+    rpc = deltachat2.Rpc(transport)
+
+    # Wait for RPC server to be ready
+    max_attempts = 10
+    for attempt in range(max_attempts):
+        try:
+            rpc.get_all_accounts()
+            break  # Server is ready
+        except Exception as e:
+            if attempt == max_attempts - 1:
+                print(f"Error: RPC server failed to start: {e}")
+                transport.close()
+                sys.exit(1)
+            time.sleep(1)
+
+    account_id = setup_account(rpc, profile_name)
+
+    # Display SecureJoin link if account was created
+    if account_id:
+        addr = get_account_address(rpc, account_id)
+        if addr:
+            print(f"\nSecureJoin link: {addr}")
+            print(f"Share this link to chat with the bot via Delta Chat")
+
+    transport.close()
