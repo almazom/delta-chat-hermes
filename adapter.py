@@ -839,8 +839,11 @@ body {{
 
             text = msg.get("text", "")
             view_type = msg.get("view_type", "")
-            if not text or view_type not in ("Text", "", None):
-                # Log full message dict for non-text types to aid debugging
+            has_file = bool(msg.get("file") or msg.get("file_mime"))
+            # Route to non-text handler when viewtype is non-text OR when the
+            # message has a file attachment even if DC reported viewType=Text
+            # (happens for image+caption combos or pending downloads).
+            if not text or view_type not in ("Text", "", None) or has_file:
                 logger.info(
                     "Non-text message: view_type=%r text=%r file=%r file_mime=%r msg_id=%s",
                     view_type, text[:80] if text else text,
@@ -960,6 +963,21 @@ body {{
         filename = msg.get("file", "")
         file_mime = msg.get("file_mime", "") or ""
 
+        # If the file isn't available yet (auto-download still in progress),
+        # trigger download_full_message and re-fetch once before proceeding.
+        if not filename and view_type not in ("Text", "", None):
+            logger.info("_handle_non_text_message: file not ready, triggering download for msg %s", msg_id)
+            try:
+                await self.rpc.download_full_message(self.account_id, int(msg_id))
+                await asyncio.sleep(2)
+                msg = await self.rpc.get_message(self.account_id, int(msg_id))
+                filename = msg.get("file", "")
+                file_mime = msg.get("file_mime", "") or ""
+                view_type = msg.get("view_type", "")
+                logger.info("_handle_non_text_message: after download: file=%r view_type=%r", filename, view_type)
+            except Exception as e:
+                logger.warning("_handle_non_text_message: download_full_message failed: %s", e)
+
         logger.info(f"_handle_non_text_message: view_type={view_type}, chat_id={chat_id}, msg_id={msg_id}, filename={filename[:100] if filename else None}")
 
         # Resolve sender and chat info (shared by all branches)
@@ -994,6 +1012,16 @@ body {{
         token = await _get_or_create_chat_token(self.rpc, self.account_id, int(chat_id))
 
         from deltachat2.types import MessageViewtype
+
+        # DC sometimes reports viewType=Text for image+caption messages.
+        # Infer the real type from file_mime when that happens.
+        if view_type in ("Text", "", None) and filename and file_mime:
+            if file_mime.startswith("image/"):
+                view_type = MessageViewtype.IMAGE.value
+            elif file_mime.startswith("audio/"):
+                view_type = MessageViewtype.AUDIO.value
+            elif file_mime.startswith("video/"):
+                view_type = MessageViewtype.VIDEO.value
 
         # Voice / Audio — let Hermes handle STT via media_urls
         if view_type in (MessageViewtype.VOICE.value, MessageViewtype.AUDIO.value) and filename:
