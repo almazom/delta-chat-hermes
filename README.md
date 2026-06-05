@@ -113,6 +113,32 @@ personal gateway start
 - Bundled `webxdc-converter` skill
 - Access via `skill_view("deltachat-platform:webxdc-converter")`
 
+### Raw RPC Access (Experimental, opt-in)
+
+Three tools are always available once the plugin is loaded:
+
+| Tool | Description |
+|------|-------------|
+| `dc_rpc_spec` | Full OpenRPC spec from the running server — all methods, params, types |
+| `dc_chat_rpc_spec` | Spec filtered to chat-scoped methods only, destructive ops removed |
+| `dc_safe_rpc_call` | Call a chat-scoped method safely: `accountId` and `chatId` are injected from an opaque per-chat token the LLM receives in each message (`[dc:chat=<token>]`), so it cannot address a different chat. Destructive methods are blocked. |
+
+The chat token is stored in Delta Chat UI config (`ui.hermes.chat_token.<chat_id>`) so it survives restarts — the same chat always gets the same token.
+
+Set `DELTACHAT_ENABLE_RAW_RPC=1` to also unlock:
+
+| Tool | Description |
+|------|-------------|
+| `dc_rpc_call` | Call **any** RPC method by name and params — unrestricted |
+
+```bash
+echo 'DELTACHAT_ENABLE_RAW_RPC=1' >> ~/.hermes/.env
+```
+
+> **Warning:** `dc_rpc_call` has unrestricted access to the Delta Chat core, including destructive operations (delete accounts, wipe messages, change config). Only enable in trusted deployments.
+
+The combination lets Hermes use the full Delta Chat API without adapter code: it can read the spec to discover new features and invoke them directly.
+
 ### Phase 3: Voice Messages (Planned)
 - Audio attachment detection
 - Automatic transcription via Hermes STT
@@ -130,6 +156,7 @@ personal gateway start
 |----------|----------|---------|-------------|
 | `DELTACHAT_RPC_SERVER` | No | `deltachat-rpc-server` | Path to RPC binary |
 | `DELTACHAT_HOME_CHANNEL` | No | - | Default chat for cron delivery |
+| `DELTACHAT_ENABLE_RAW_RPC` | No | - | Enable raw RPC tools (see below) |
 
 ## Documentation
 

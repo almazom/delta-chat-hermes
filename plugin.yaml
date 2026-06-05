@@ -6,7 +6,7 @@ description: Delta Chat messaging platform adapter for Hermes Agent. Supports te
 author: Simon Laux
 requires_env:
   - name: DELTACHAT_RPC_SERVER
-    description: "Path to deltachat-rpc-server binary"
+    description: "Path to deltachat-rpc-server binary. After setting, run: python ~/.hermes/plugins/deltachat-platform/setup.py"
 optional_env:
   - name: DELTACHAT_HOME_CHANNEL
     description: "Default chat for cron delivery"

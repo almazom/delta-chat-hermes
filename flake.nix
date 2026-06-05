@@ -20,6 +20,9 @@
             python3Packages.black
             python3Packages.flake8
 
+            # Tools
+            jq
+
             # Delta Chat
             deltachat-rpc-server
             # Python package for development/testing

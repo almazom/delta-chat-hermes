@@ -3,13 +3,13 @@
 from pathlib import Path
 
 # Import adapter registration
-from .adapter import register_platform
+from .adapter import register_platform, register_rpc_tools
 
 
 def register(ctx):
     """Register Delta Chat platform adapter and bundled skills."""
-    # Register platform adapter
     register_platform(ctx)
+    register_rpc_tools(ctx)
 
     # Register bundled webxdc-converter skill
     skills_dir = Path(__file__).parent / "skills"
