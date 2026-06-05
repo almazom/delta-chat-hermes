@@ -14,7 +14,7 @@ class TestConfigDirectory:
             hermes_home = Path(tmpdir) / "hermes"
             hermes_home.mkdir()
 
-            dc_config_dir = hermes_home / "deltachat"
+            dc_config_dir = hermes_home / "deltachat-platform"
 
             # Simulate what the adapter does
             dc_config_dir.mkdir(exist_ok=True)
@@ -26,23 +26,23 @@ class TestConfigDirectory:
         """Test path construction for DC config."""
         with tempfile.TemporaryDirectory() as tmpdir:
             hermes_home = Path(tmpdir)
-            expected = str(hermes_home / "deltachat")
+            expected = str(hermes_home / "deltachat-platform")
 
             # This is what adapter._get_dc_config_dir does
-            dc_config_dir = os.path.join(str(hermes_home), "deltachat")
+            dc_config_dir = os.path.join(str(hermes_home), "deltachat-platform")
 
             assert dc_config_dir == expected
 
     def test_env_var_construction(self):
         """Test DC_ACCOUNTS_PATH environment variable construction."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            dc_accounts_path = os.path.join(tmpdir, "deltachat")
+            dc_accounts_path = os.path.join(tmpdir, "deltachat-platform")
 
             # This is what the adapter sets
             env_value = dc_accounts_path
 
             assert isinstance(env_value, str)
-            assert "deltachat" in env_value
+            assert "deltachat-platform" in env_value
 
 
 class TestRPCServerPath:

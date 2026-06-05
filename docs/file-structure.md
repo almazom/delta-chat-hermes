@@ -6,7 +6,7 @@ Delta Chat plugin for Hermes Agent.
 ## Plugin Directory Structure
 
 ```
-~/.hermes/plugins/deltachat/
+~/.hermes/plugins/deltachat-platform/
 ├── plugin.yaml              # Plugin manifest and metadata
 ├── __init__.py              # Plugin entry point and registration
 ├── adapter.py               # Main Delta Chat adapter implementation
@@ -40,7 +40,7 @@ The Delta Chat plugin creates its own subdirectory within each profile:
 │   ├── gateway.log             # Gateway logs (includes version warnings)
 │   └── gateway.error.log       # Gateway error logs
 ├── sessions/                   # Session history
-└── deltachat/                  # Delta Chat configuration (auto-created)
+└── deltachat-platform/                  # Delta Chat configuration (auto-created)
     └── <account-id>/
         ├── config.json         # Account configuration
         ├── keys/              # Encryption keys
@@ -60,7 +60,7 @@ The default Hermes profile uses `~/.hermes/` directly:
 │   ├── gateway.log
 │   └── gateway.error.log
 ├── sessions/
-└── deltachat/                  # Delta Chat accounts
+└── deltachat-platform/                  # Delta Chat accounts
     └── <account-id>/
         └── ...
 ```
@@ -70,23 +70,23 @@ The default Hermes profile uses `~/.hermes/` directly:
 ```
 ~/.hermes/
 ├── plugins/
-│   └── deltachat/              # Shared plugin code
+│   └── deltachat-platform/              # Shared plugin code
 ├── profiles/
 │   ├── work/
 │   │   ├── .env                # DELTACHAT_RPC_SERVER=/usr/bin/dc-rpc
-│   │   └── deltachat/
+│   │   └── deltachat-platform/
 │   │       └── account-1/     # Work Delta Chat account
 │   └── personal/
 │       ├── .env                # DELTACHAT_RPC_SERVER=/usr/bin/dc-rpc
-│       └── deltachat/
+│       └── deltachat-platform/
 │           └── account-2/     # Personal Delta Chat account
-└── deltachat/                  # Default profile's Delta Chat config
+└── deltachat-platform/                  # Default profile's Delta Chat config
     └── account-0/
 ```
 
 ## Key Directories Explained
 
-### `deltachat/`
+### `deltachat-platform/`
 - Created automatically by the plugin on first connection
 - Contains Delta Chat account data for that Hermes profile
 - Each profile has its own, ensuring isolation

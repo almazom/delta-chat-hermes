@@ -1,5 +1,5 @@
 {
-  description = "Delta Chat plugin for Hermes Agent";
+  description = "Delta Chat platform plugin for Hermes Agent";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -33,14 +33,14 @@
 
         # Package for installation - installs plugin to Hermes plugins directory
         packages.default = pkgs.stdenv.mkDerivation {
-          name = "deltachat-hermes";
+          name = "deltachat-platform";
           src = ./.;
           buildPhase = ''
-            echo "Building Delta Chat plugin..."
+            echo "Building Delta Chat platform plugin..."
           '';
           installPhase = ''
-            mkdir -p $out/share/hermes/plugins/deltachat
-            cp -r adapter.py __init__.py plugin.yaml README.md LICENSE docs/ skills/ setup.py vendor/ $out/share/hermes/plugins/deltachat/
+            mkdir -p $out/share/hermes/plugins/deltachat-platform
+            cp -r adapter.py __init__.py plugin.yaml README.md LICENSE docs/ skills/ setup.py vendor/ $out/share/hermes/plugins/deltachat-platform/
           '';
         };
       }

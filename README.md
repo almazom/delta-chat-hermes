@@ -10,10 +10,10 @@ Uses **deltachat2** for direct JSON-RPC access (not abstracted away).
 pip install deltachat-rpc-server
 
 # Clone plugin to Hermes
-git clone https://github.com/Simon-Laux/deltachat-hermes ~/.hermes/plugins/deltachat
+git clone https://github.com/Simon-Laux/hermes-deltachat-platform ~/.hermes/plugins/deltachat-platform
 
 # Enable plugin
-hermes plugins enable deltachat
+hermes plugins enable deltachat-platform
 
 # Start gateway
 hermes gateway start
@@ -39,6 +39,7 @@ cargo build -p deltachat-rpc-server --release
 **Option C: NixOS**
 ```bash
 nix profile install nixpkgs#deltachat-rpc-server
+echo 'DELTACHAT_RPC_SERVER=/home/work/.nix-profile/bin/deltachat-rpc-server' >> ~/.hermes/.env
 ```
 
 ### 2. (Optional) Configure RPC server path
@@ -55,51 +56,30 @@ hermes -p my-profile config set env.DELTACHAT_RPC_SERVER /path/to/deltachat-rpc-
 ### 3. Enable Plugin
 
 ```bash
-hermes plugins enable deltachat
+hermes plugins enable deltachat-platform
 ```
 
-## Usage
+### 4. Create Account
 
-### Basic Usage
+Run the setup script. It will **auto-detect your Hermes profiles** and let you select one:
 
+```bash
+python ~/.hermes/plugins/deltachat-platform/setup.py
+```
+
+The script will:
+1. List all available Hermes profiles
+2. Let you select which profile to configure
+3. Create the account and display its **Delta Chat address** (e.g., `mybot@nine.testrun.org`)
+4. Save the account in that profile's `deltachat-platform/` directory
+
+### 5. Start the gateway
 ```bash
 # Start gateway (automatically connects to first DC account)
 hermes gateway start
 ```
 
-The plugin will:
-1. Set `DC_ACCOUNTS_PATH` to `<profile>/deltachat/`
-2. Start `deltachat-rpc-server` automatically
-3. Check version compatibility (blocks older than 2.51.0, warns on newer)
-4. Use first Delta Chat account found
-5. Begin forwarding messages bidirectionally
-
-### First Run: Account Setup
-
-On first run, the plugin will guide you through account creation:
-
-```
-Delta Chat Account Setup
-========================
-
-Create New Account
-----------------------------------------
-1. Create on public relay (no personal info, just a name)
-2. Manual email credentials
-
-Select option [1/2]: 1
-Display name: My Bot
-
-Use default relay? [Y/n]: Y
-
-Creating account 'My Bot' on relay: nine.testrun.org
-Account created! ID: 12345
-```
-
-The setup offers to create an account on a public relay without requiring
-personal information - you only need to provide a display name. You can choose
-from a list of available relay servers scraped from chatmail.at, or use
-the default (nine.testrun.org).
+## Usage
 
 ### Multiple Agents
 
@@ -111,8 +91,8 @@ hermes profile create work
 hermes profile create personal
 
 # Each gets its own DC config at:
-# ~/.hermes/profiles/work/deltachat/
-# ~/.hermes/profiles/personal/deltachat/
+# ~/.hermes/profiles/work/deltachat-platform/
+# ~/.hermes/profiles/personal/deltachat-platform/
 
 # Start gateways
 work gateway start
@@ -131,7 +111,7 @@ personal gateway start
 ### Phase 2: Webxdc Support
 - Send .xdc files via `send_file()` RPC call
 - Bundled `webxdc-converter` skill
-- Access via `skill_view("deltachat:webxdc-converter")`
+- Access via `skill_view("deltachat-platform:webxdc-converter")`
 
 ### Phase 3: Voice Messages (Planned)
 - Audio attachment detection

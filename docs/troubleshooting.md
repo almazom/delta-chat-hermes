@@ -12,7 +12,7 @@ HERMES_PLUGINS_DEBUG=1 hermes plugins list
 ```
 
 **Common causes:**
-- Plugin not in correct directory: `~/.hermes/plugins/deltachat/`
+- Plugin not in correct directory: `~/.hermes/plugins/deltachat-platform/`
 - Missing `plugin.yaml` or `__init__.py`
 - Syntax error in plugin files
 - Missing dependencies
@@ -20,11 +20,11 @@ HERMES_PLUGINS_DEBUG=1 hermes plugins list
 **Fix:**
 ```bash
 # Verify directory structure
-ls -la ~/.hermes/plugins/deltachat/
+ls -la ~/.hermes/plugins/deltachat-platform/
 
 # Check for syntax errors
-python3 -m py_compile ~/.hermes/plugins/deltachat/__init__.py
-python3 -m py_compile ~/.hermes/plugins/deltachat/adapter.py
+python3 -m py_compile ~/.hermes/plugins/deltachat-platform/__init__.py
+python3 -m py_compile ~/.hermes/plugins/deltachat-platform/adapter.py
 
 # Install dependencies
 pip install deltachat2
@@ -70,11 +70,11 @@ pip install deltachat-rpc-server
 
 **Check:**
 ```bash
-# Verify deltachat directory exists
-ls -la ~/.hermes/deltachat/
+# Verify deltachat-platform directory exists
+ls -la ~/.hermes/deltachat-platform/
 
 # Or for specific profile
-ls -la ~/.hermes/profiles/<name>/deltachat/
+ls -la ~/.hermes/profiles/<name>/deltachat-platform/
 ```
 
 **Common causes:**
@@ -197,12 +197,12 @@ top -p $(pgrep -f deltachat-rpc-server)
 **To completely remove the plugin:**
 ```bash
 # Remove plugin files
-rm -rf ~/.hermes/plugins/deltachat/
+rm -rf ~/.hermes/plugins/deltachat-platform/
 
 # Remove profile-specific config
-rm -rf ~/.hermes/profiles/*/deltachat/
-rm -rf ~/.hermes/deltachat/
+rm -rf ~/.hermes/profiles/*/deltachat-platform/
+rm -rf ~/.hermes/deltachat-platform/
 
 # Remove from enabled plugins
-hermes plugins disable deltachat
+hermes plugins disable deltachat-platform
 ```

@@ -28,11 +28,11 @@ class TestConfigDirectoryIntegration:
         config_dir = adapter._get_dc_config_dir()
 
         # MockHermesConfig.get_hermes_home returns a default path
-        # The adapter should append "deltachat" to it
+        # The adapter should append "deltachat-platform" to it
         from tests.conftest import MockHermesConfig
 
         expected_home = MockHermesConfig.get_hermes_home()
-        expected = os.path.join(expected_home, "deltachat")
+        expected = os.path.join(expected_home, "deltachat-platform")
         assert config_dir == expected
 
     def test_dc_config_dir_creates_directory(self, platform_config, tmp_path):
@@ -48,7 +48,7 @@ class TestConfigDirectoryIntegration:
         adapter._dc_config_dir = None
 
         config_dir = adapter._get_dc_config_dir()
-        expected_dir = os.path.join(test_home, "deltachat")
+        expected_dir = os.path.join(test_home, "deltachat-platform")
 
         assert os.path.exists(config_dir)
         assert os.path.isdir(config_dir)
