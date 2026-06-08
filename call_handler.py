@@ -1330,16 +1330,13 @@ class CallManager:
         synthesized. This drops time-to-first-audio for long replies from the
         whole-response TTS time to just the first sentence's.
         """
-        logger.info("[LIFECYCLE] play_response: START for chat_id=%s, text=%s", chat_id, text[:50])
         msg_id = self._chat_to_msg.get(chat_id)
         if msg_id is None:
             logger.warning("play_response: no active call for chat_id=%s", chat_id)
             return
         session = self._sessions.get(msg_id)
         if session is None:
-            logger.info("[LIFECYCLE] play_response: no session for chat_id=%s", chat_id)
             return
-        logger.info("[LIFECYCLE] play_response: will TTS for msg_id=%s", msg_id)
 
         from tools.tts_tool import text_to_speech_tool
 
@@ -1463,17 +1460,13 @@ class CallManager:
         spoken it waits for play_response to complete, then drains the
         audio track before hanging up.  Returns True if a call was ended.
         """
-        logger.info("[LIFECYCLE] request_hangup: called for chat_id=%s", chat_id)
         msg_id = self._chat_to_msg.get(chat_id)
         if msg_id is None:
-            logger.info("[LIFECYCLE] request_hangup: no msg_id for chat_id=%s", chat_id)
             return False
         session = self._sessions.get(msg_id)
         if session is None:
-            logger.info("[LIFECYCLE] request_hangup: no session for msg_id=%s", msg_id)
             return False
 
-        logger.info("[LIFECYCLE] request_hangup: setting hangup_pending for msg_id=%s", msg_id)
         session.hangup_pending = True
 
         # The goodbye reply is spoken by a play_response task scheduled from
@@ -1495,10 +1488,8 @@ class CallManager:
         return True
 
     async def _teardown_session(self, msg_id: int, notify_ai: bool = True) -> None:
-        logger.info("[LIFECYCLE] _teardown_session: starting for msg_id=%s", msg_id)
         session = self._sessions.pop(msg_id, None)
         if session is None:
-            logger.info("[LIFECYCLE] _teardown_session: no session found, msg_id=%s", msg_id)
             return
         chat_id, caller_id, caller_name = session.chat_id, session.caller_id, session.caller_name
         self._chat_to_msg.pop(chat_id, None)
@@ -1507,7 +1498,7 @@ class CallManager:
         # pc.close() can hang if ICE is in a bad state — don't let it block shutdown
         with contextlib.suppress(Exception):
             await asyncio.wait_for(session.pc.close(), timeout=3.0)
-        logger.info("[LIFECYCLE] _teardown_session: session %s torn down", msg_id)
+        logger.info("Call session %s torn down", msg_id)
         # Tell the AI the call is over so it doesn't think it's still connected.
         if notify_ai:
             asyncio.ensure_future(self._note_call_ended(chat_id, caller_id, caller_name))

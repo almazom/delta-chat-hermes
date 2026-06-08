@@ -11,13 +11,23 @@ client (or the bot can hang up via `dc_end_call`).
 
 ## Outgoing calls (the bot calls you)
 
-> **Implementation notes (two fixes were needed to make outgoing connect):**
-> 1. **Event-loop starvation (the main one).** aiortc drives ICE STUN
->    connectivity checks on the asyncio loop. `dc_start_call` used to return
->    right after the SDP exchange, the agent's turn resumed heavy AI/TTS work,
->    and the checks were starved — the offerer sat in `checking` forever. Fix:
->    `start_call` now *waits for the connection to establish before returning*,
->    keeping the agent parked so the loop is free for the handshake.
+> **Implementation notes (two things were needed to make outgoing work):**
+> 1. **Dedicated event loop for WebRTC (the main one).** aiortc drives ICE STUN
+>    checks *and* RTP send/recv as tasks on the asyncio loop — if that loop is
+>    blocked, media stops. The bot places outgoing calls from inside an agent
+>    turn, so the moment that turn resumed its heavy AI/TTS work it starved the
+>    loop: first the ICE handshake stalled in `checking`, and even once a
+>    short-lived park got it connected, RTP died the instant the park ended (a
+>    real call carried audio for ~4 s — exactly the park window — then went
+>    silent). Incoming calls escaped this only because the gateway loop happened
+>    to be idle at accept time. Fix: every aiortc object (peer connection,
+>    tracks, data channels, the incoming-audio receive loop) runs on a
+>    **dedicated event loop in its own daemon thread** (`CallManager`), so call
+>    media can never be starved by gateway/agent work. The only hop back to the
+>    gateway loop is the Hermes AI pipeline (`handle_message`); RPC is
+>    loop-agnostic. `dc_start_call` no longer needs to park — it returns as soon
+>    as the call connects (or is declined/unanswered), confirming for ~2 s, then
+>    finishes setup and plays the opening in the background.
 > 2. **Audio-only offer.** The `iceTrickling`/`mutedState` data channels' SCTP
 >    transport wedges the offerer's ICE against a `max-bundle` answerer (the DC
 >    mobile); outgoing offers are audio-only. Incoming keeps the data channels
