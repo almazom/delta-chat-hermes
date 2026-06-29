@@ -31,12 +31,14 @@ from gateway.config import Platform, PlatformConfig
 
 from chat_tokens import ChatTokenStore, get_or_create_chat_token, resolve_chat_token
 from media import (
-    resolve_blob_path,
+    container_workspace_to_host,
+    copy_container_file_to_cache,
     copy_to_hermes_cache,
     extract_media as _extract_media,
     extract_local_files as _extract_local_files,
     filter_media_delivery_paths as _filter_media_delivery_paths,
     filter_local_delivery_paths as _filter_local_delivery_paths,
+    resolve_blob_path,
 )
 from rpc_tools import register_rpc_tools
 
@@ -207,7 +209,9 @@ class DeltaChatRpcClient:
         import deltachat2
         from deltachat2.transport import IOTransport
 
-        os.environ["DC_ACCOUNTS_PATH"] = self.accounts_dir
+        # IOTransport passes DC_ACCOUNTS_PATH only to the RPC server subprocess,
+        # so we do not mutate the global os.environ here. This keeps multiple
+        # Hermes profile adapters isolated from each other.
         self.transport = IOTransport(
             accounts_dir=self.accounts_dir,
             rpc_server=self.rpc_server_path,
@@ -243,7 +247,8 @@ class DeltaChatAdapter(BasePlatformAdapter):
     """Delta Chat platform adapter for Hermes Gateway.
 
     Uses deltachat2 for direct JSON-RPC access (not abstracted away).
-    Each Hermes profile runs its own instance with its own DC_ACCOUNTS_PATH.
+    Each Hermes profile runs its own instance; DC_ACCOUNTS_PATH is scoped to the
+    RPC server subprocess so multiple adapters do not interfere with each other.
     """
 
     def __init__(self, config: PlatformConfig):
@@ -857,138 +862,36 @@ body {{
 
     @staticmethod
     def _container_workspace_to_host(container_path: str) -> Optional[str]:
-        """Map a /workspace/<rel> container path to its host-side sandbox path.
-
-        Returns None when the path is not under /workspace/ or when the resolved
-        path escapes the sandbox (path traversal attempt).
-        """
-        from pathlib import Path
-
-        p = str(container_path)
-        if not p.startswith("/workspace/"):
-            return None
-        rel = p[len("/workspace/") :]
-        try:
-            from tools.environments.base import get_sandbox_dir
-
-            sandbox_workspace = get_sandbox_dir() / "docker" / "default" / "workspace"
-        except ImportError:
-            from gateway.config import get_hermes_home
-
-            sandbox_workspace = Path(get_hermes_home()) / "sandboxes" / "docker" / "default" / "workspace"
-
-        sandbox = sandbox_workspace.resolve()
-        target = (sandbox / rel).resolve()
-        # Reject traversal that resolves outside the sandbox workspace.
-        if target != sandbox and not str(target).startswith(str(sandbox) + os.sep):
-            logger.warning("Path traversal rejected for container path: %s", container_path)
-            return None
-        return str(target)
+        """Map a /workspace/<rel> container path to its host-side sandbox path."""
+        return container_workspace_to_host(container_path)
 
     def _copy_container_file_to_cache(self, container_path: str) -> Optional[str]:
-        """Copy a /workspace/ container file to the Hermes docs cache.
-
-        Returns the cache path on success, None if the file doesn't exist.
-        Same pattern as _copy_to_hermes_cache for DC audio blobs.
-        """
-        import shutil
-        from pathlib import Path
-        from gateway.config import get_hermes_home
-
-        host_path_str = self._container_workspace_to_host(container_path)
-        if host_path_str is None:
-            return None
-
-        host_path = Path(host_path_str)
-        if not host_path.is_file():
-            logger.warning("Container output file not found on host: %s", host_path)
-            return None
-
-        docs_dir = Path(get_hermes_home()) / "cache" / "documents"
-        docs_dir.mkdir(parents=True, exist_ok=True)
-        dest = docs_dir / host_path.name
-        shutil.copy2(str(host_path), str(dest))
-        logger.info("Copied container output %s → %s", host_path.name, dest)
-        return str(dest)
+        """Copy a /workspace/ container file to the Hermes docs cache."""
+        return copy_container_file_to_cache(container_path)
 
     def extract_media(self, content: str):
-        """Extend base extract_media to also handle .xdc MEDIA tags.
-
-        .xdc is not in Hermes's MEDIA_DELIVERY_EXTS so the base staticmethod
-        misses it.  We catch those tags here so they flow through the normal
-        filter_media_delivery_paths → send_document pipeline, exactly like
-        Telegram handles any other document type.
-        """
-        import re
+        """Extend base extract_media to also handle .xdc MEDIA tags."""
         from gateway.platforms.base import BasePlatformAdapter
 
-        media_files, remaining = BasePlatformAdapter.extract_media(content)
-
-        xdc_re = re.compile(
-            r'[`"\']?MEDIA:\s*[`"\']?((?:~/|/)[\w./\- ]+\.xdc)[`"\']?',
-            re.IGNORECASE,
-        )
-        for match in xdc_re.finditer(content):
-            path = match.group(1).strip()
-            if not any(p == path for p, _ in media_files):
-                media_files.append((path, False))
-            remaining = remaining.replace(match.group(0), "").strip()
-
-        return media_files, remaining
+        return _extract_media(content, BasePlatformAdapter.extract_media)
 
     def extract_local_files(self, content: str):
-        """Extend base to also pick up bare /workspace/*.xdc paths.
-
-        The base staticmethod checks os.path.isfile() on the host — container
-        paths like /workspace/app.xdc don't exist there, so we add them
-        explicitly.  filter_local_delivery_paths then does the host mapping.
-        """
-        import re
+        """Extend base to also pick up bare /workspace/*.xdc paths."""
         from gateway.platforms.base import BasePlatformAdapter
 
-        files, remaining = BasePlatformAdapter.extract_local_files(content)
-
-        xdc_re = re.compile(r"(?<![/:\w.])(/workspace/[\w./\-]+\.xdc)\b", re.IGNORECASE)
-        for match in xdc_re.finditer(content):
-            path = match.group(1)
-            if path not in files:
-                files.append(path)
-                remaining = remaining.replace(match.group(0), "").strip()
-
-        return files, remaining
+        return _extract_local_files(content, BasePlatformAdapter.extract_local_files)
 
     def filter_media_delivery_paths(self, media_files):
         """Remap /workspace/ container paths to host cache before validation."""
         from gateway.platforms.base import BasePlatformAdapter
 
-        remapped = []
-        for media_path, is_voice in media_files or []:
-            p = str(media_path)
-            if p.startswith("/workspace/"):
-                cached = self._copy_container_file_to_cache(p)
-                if cached:
-                    remapped.append((cached, is_voice))
-                    continue
-                logger.warning("Could not resolve container path for delivery: %s", p)
-            remapped.append((media_path, is_voice))
-        return BasePlatformAdapter.filter_media_delivery_paths(remapped)
+        return _filter_media_delivery_paths(media_files, BasePlatformAdapter.filter_media_delivery_paths)
 
     def filter_local_delivery_paths(self, file_paths):
         """Remap /workspace/ container paths to host cache before validation."""
         from gateway.platforms.base import BasePlatformAdapter
 
-        remapped = []
-        for file_path in file_paths or []:
-            p = str(file_path)
-            if p.startswith("/workspace/"):
-                cached = self._copy_container_file_to_cache(p)
-                if cached:
-                    remapped.append(cached)
-                    continue
-                logger.warning("Could not resolve container path for delivery: %s", p)
-            else:
-                remapped.append(file_path)
-        return BasePlatformAdapter.filter_local_delivery_paths(remapped)
+        return _filter_local_delivery_paths(file_paths, BasePlatformAdapter.filter_local_delivery_paths)
 
     async def _event_listener(self) -> None:
         """Listen for Delta Chat events and forward to Hermes."""
