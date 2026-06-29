@@ -12,3 +12,7 @@ optional_env:
     description: "Default chat for cron delivery"
     prompt: "Home chat"
     password: false
+  - name: DELTACHAT_ENABLE_VOICE_CALLS
+    description: "Enable experimental WebRTC voice calls (requires aiortc; high RAM use)"
+    prompt: "Enable voice calls"
+    password: false

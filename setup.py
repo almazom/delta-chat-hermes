@@ -198,6 +198,48 @@ class DeltaChatAccountSetup:
 
 
 
+    def non_interactive_setup(
+        self,
+        profile_name: str = "default",
+        name: Optional[str] = None,
+        relay: Optional[str] = None,
+        email: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> Optional[str]:
+        """Create or reuse an account without prompting.
+
+        Args:
+            profile_name: Hermes profile name for default account name
+            name: Display name for the bot
+            relay: Public relay domain (e.g. nine.testrun.org)
+            email: Existing email address
+            password: Password for existing email
+
+        Returns:
+            Account ID or None if failed
+        """
+        accounts = self.list_accounts()
+        if not accounts:
+            default_name = name or (profile_name if profile_name != "default" else "Hermes Bot")
+            account_id = self.rpc.add_account()
+            self.rpc.set_config(account_id, "displayname", default_name)
+            print(f"Account created! ID: {account_id}")
+        else:
+            account_id = accounts[0]["id"]
+            print(f"Using existing account: {account_id}")
+
+        if not self.rpc.is_configured(account_id):
+            if email and password:
+                self.rpc.add_or_update_transport(account_id, {"addr": email, "password": password})
+                print(f"Transport configured using email: {email}")
+            else:
+                relay_host = (relay or get_relay_servers()[0]).replace("https://", "")
+                self.rpc.add_transport_from_qr(account_id, f"dcaccount:{relay_host}")
+                print(f"Transport configured using relay: {relay_host}")
+
+        return account_id
+
+
 def setup_account(rpc, profile_name: str = "default") -> Optional[str]:
     """Convenience function for account setup.
 
@@ -307,10 +349,38 @@ def get_account_address(rpc, account_id: int) -> Optional[str]:
     return None
 
 
+def _wait_for_rpc(rpc, timeout: float = 10.0) -> bool:
+    """Poll RPC server readiness with a short backoff."""
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            rpc.get_all_accounts()
+            return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+
+def _build_argparser():
+    import argparse
+    parser = argparse.ArgumentParser(description="Delta Chat account setup for Hermes")
+    parser.add_argument("--non-interactive", action="store_true", help="Run without prompts")
+    parser.add_argument("--relay", default=None, help="Public relay domain, e.g. nine.testrun.org")
+    parser.add_argument("--email", default=None, help="Email address for existing credentials")
+    parser.add_argument("--password", default=None, help="Password for existing email")
+    parser.add_argument("--name", default=None, help="Display name for the bot")
+    parser.add_argument("--profile", default=None, help="Hermes profile name")
+    return parser
+
+
 if __name__ == "__main__":
     import sys
     import os
     import time
+    import argparse
+
+    args = _build_argparser().parse_args()
 
     # Try to import deltachat2 from vendor or system
     import sys as _sys
@@ -333,8 +403,14 @@ if __name__ == "__main__":
         logging.getLogger("deltachat2.IOTransport").setLevel(logging.DEBUG)
         logging.basicConfig(level=logging.DEBUG)
 
-    # Auto-detect and select profile
-    profile_name, hermes_home = select_profile()
+    # Select profile
+    if args.non_interactive and args.profile:
+        profile_name = args.profile
+        hermes_home = os.path.join(os.path.expanduser("~/.hermes"), "profiles", args.profile)
+        if not os.path.isdir(hermes_home):
+            hermes_home = os.path.expanduser("~/.hermes")
+    else:
+        profile_name, hermes_home = select_profile()
 
     # Set accounts directory
     dc_accounts_path = os.path.join(hermes_home, "deltachat-platform")
@@ -354,19 +430,22 @@ if __name__ == "__main__":
     rpc = deltachat2.Rpc(transport)
 
     # Wait for RPC server to be ready
-    max_attempts = 10
-    for attempt in range(max_attempts):
-        try:
-            rpc.get_all_accounts()
-            break  # Server is ready
-        except Exception as e:
-            if attempt == max_attempts - 1:
-                print(f"Error: RPC server failed to start: {e}")
-                transport.close()
-                sys.exit(1)
-            time.sleep(1)
+    if not _wait_for_rpc(rpc):
+        print("Error: RPC server failed to start")
+        transport.close()
+        sys.exit(1)
 
-    account_id = setup_account(rpc, profile_name)
+    setup = DeltaChatAccountSetup(rpc)
+    if args.non_interactive:
+        account_id = setup.non_interactive_setup(
+            profile_name=profile_name,
+            name=args.name,
+            relay=args.relay,
+            email=args.email,
+            password=args.password,
+        )
+    else:
+        account_id = setup.interactive_setup(profile_name)
 
     # Display SecureJoin link if account was created
     if account_id:

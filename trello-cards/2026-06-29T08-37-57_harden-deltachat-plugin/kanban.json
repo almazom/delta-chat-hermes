@@ -1,0 +1,220 @@
+{
+  "meta": {
+    "project": "hermes-deltachat-platform-hardening",
+    "output_dir": "trello-cards/2026-06-29T08-37-57_harden-deltachat-plugin/",
+    "board_id": null,
+    "created_at": "2026-06-29T08:37:57Z",
+    "total_cards": 19,
+    "total_story_points": 40
+  },
+  "cards": {
+    "TC-001": {
+      "status": "in_progress",
+      "epic": "01-state-boundaries",
+      "sp": 2,
+      "deps": [],
+      "title": "Create per-adapter plugin state class",
+      "capabilities": []
+    },
+    "TC-002": {
+      "status": "backlog",
+      "epic": "01-state-boundaries",
+      "sp": 3,
+      "deps": [
+        "TC-001"
+      ],
+      "title": "Replace global _active_adapter with context-bound state",
+      "capabilities": []
+    },
+    "TC-003": {
+      "status": "backlog",
+      "epic": "01-state-boundaries",
+      "sp": 2,
+      "deps": [
+        "TC-001"
+      ],
+      "title": "Replace global token maps with per-adapter token store",
+      "capabilities": []
+    },
+    "TC-004": {
+      "status": "backlog",
+      "epic": "01-state-boundaries",
+      "sp": 1,
+      "deps": [
+        "TC-001"
+      ],
+      "title": "Move OpenRPC spec cache into state object",
+      "capabilities": []
+    },
+    "TC-005": {
+      "status": "backlog",
+      "epic": "01-state-boundaries",
+      "sp": 1,
+      "deps": [],
+      "title": "Harden version check to fail closed",
+      "capabilities": []
+    },
+    "TC-006": {
+      "status": "backlog",
+      "epic": "02-reliability-reconnects",
+      "sp": 3,
+      "deps": [
+        "TC-005"
+      ],
+      "title": "Create DeltaChatRpcClient wrapper for transport lifecycle",
+      "capabilities": []
+    },
+    "TC-007": {
+      "status": "backlog",
+      "epic": "02-reliability-reconnects",
+      "sp": 2,
+      "deps": [
+        "TC-006"
+      ],
+      "title": "Replace sleep-based readiness with polling loop",
+      "capabilities": []
+    },
+    "TC-008": {
+      "status": "backlog",
+      "epic": "02-reliability-reconnects",
+      "sp": 4,
+      "deps": [
+        "TC-007"
+      ],
+      "title": "Add event-loop health monitor and reconnect logic",
+      "capabilities": []
+    },
+    "TC-009": {
+      "status": "backlog",
+      "epic": "03-module-refactor",
+      "sp": 2,
+      "deps": [
+        "TC-003"
+      ],
+      "title": "Extract chat token functions to chat_tokens.py",
+      "capabilities": []
+    },
+    "TC-010": {
+      "status": "backlog",
+      "epic": "03-module-refactor",
+      "sp": 3,
+      "deps": [
+        "TC-002",
+        "TC-009"
+      ],
+      "title": "Extract RPC tools to rpc_tools.py",
+      "capabilities": []
+    },
+    "TC-011": {
+      "status": "backlog",
+      "epic": "03-module-refactor",
+      "sp": 3,
+      "deps": [],
+      "title": "Extract media handling to media.py",
+      "capabilities": []
+    },
+    "TC-012": {
+      "status": "backlog",
+      "epic": "03-module-refactor",
+      "sp": 3,
+      "deps": [
+        "TC-009",
+        "TC-010",
+        "TC-011"
+      ],
+      "title": "Shrink adapter.py to platform interface only",
+      "capabilities": []
+    },
+    "TC-013": {
+      "status": "backlog",
+      "epic": "04-voice-hardening",
+      "sp": 2,
+      "deps": [
+        "TC-012"
+      ],
+      "title": "Gate CallManager behind DELTACHAT_ENABLE_VOICE_CALLS",
+      "capabilities": []
+    },
+    "TC-014": {
+      "status": "backlog",
+      "epic": "04-voice-hardening",
+      "sp": 2,
+      "deps": [
+        "TC-013"
+      ],
+      "title": "Add bounded queues and thread-pool limits",
+      "capabilities": []
+    },
+    "TC-015": {
+      "status": "backlog",
+      "epic": "04-voice-hardening",
+      "sp": 1,
+      "deps": [
+        "TC-013"
+      ],
+      "title": "Add audio cache cleanup after STT",
+      "capabilities": []
+    },
+    "TC-016": {
+      "status": "backlog",
+      "epic": "05-automation-tests",
+      "sp": 2,
+      "deps": [],
+      "title": "Add non-interactive CLI flags to setup.py",
+      "capabilities": []
+    },
+    "TC-017": {
+      "status": "backlog",
+      "epic": "05-automation-tests",
+      "sp": 2,
+      "deps": [
+        "TC-001",
+        "TC-003"
+      ],
+      "title": "Add tests for state isolation and token round-trip",
+      "capabilities": []
+    },
+    "TC-018": {
+      "status": "backlog",
+      "epic": "05-automation-tests",
+      "sp": 3,
+      "deps": [
+        "TC-008",
+        "TC-016"
+      ],
+      "title": "Add tests for reconnect and non-interactive setup",
+      "capabilities": []
+    },
+    "TC-019": {
+      "status": "backlog",
+      "epic": "05-automation-tests",
+      "sp": 2,
+      "deps": [
+        "TC-012",
+        "TC-013",
+        "TC-017",
+        "TC-018"
+      ],
+      "title": "Run full pytest suite and fix regressions",
+      "capabilities": []
+    }
+  },
+  "transition_log": [
+    {
+      "card": "TC-001",
+      "from": "backlog",
+      "to": "in_progress",
+      "at": "2026-06-29T08:48:40.366110+00:00"
+    }
+  ],
+  "blockers": [],
+  "status_counts": {
+    "backlog": 18,
+    "in_progress": 1,
+    "review": 0,
+    "simplification": 0,
+    "auto_commit": 0,
+    "done": 0,
+    "blocked": 0
+  }
+}

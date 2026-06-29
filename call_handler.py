@@ -170,7 +170,7 @@ class HermesAudioTrack(AudioStreamTrack):
 
     def __init__(self):
         super().__init__()
-        self._queue: asyncio.Queue = asyncio.Queue()
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=1200)  # ~24s of audio
         self._played_count = 0   # monotonic count of real TTS frames sent (for barge-in accounting)
 
     @property
@@ -228,8 +228,17 @@ class HermesAudioTrack(AudioStreamTrack):
         objects directly — never reconstruct from bytes(plane), which would
         include the plane's alignment padding (a classic PyAV gotcha that injects
         garbage samples and causes audible clicking every ~25 ms).
+
+        If the queue is full, the oldest frames are dropped so playback does not
+        stall and memory stays bounded.
         """
         for frame in frames:
+            if self._queue.full():
+                logger.warning("TTS queue full; dropping oldest frame")
+                try:
+                    self._queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
             self._queue.put_nowait(frame)
         logger.debug("Enqueued %d TTS frames → %d queued", len(frames), self._queue.qsize())
 
@@ -280,9 +289,20 @@ class IncomingAudioBuffer:
         self._on_speech_confirmed = on_speech_confirmed
         self._audio_cache = Path(hermes_home) / "audio_cache"
         self._audio_cache.mkdir(parents=True, exist_ok=True)
+        self._rotate_audio_cache()
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._stt_lock = asyncio.Semaphore(1)   # serialize STT — whisper isn't parallel-safe
+
+    def _rotate_audio_cache(self) -> None:
+        """Keep only the newest call WAV files to prevent unbounded disk growth."""
+        try:
+            files = sorted(self._audio_cache.glob("call_*.wav"), key=lambda p: p.stat().st_mtime)
+            for old in files[:-20]:
+                old.unlink(missing_ok=True)
+                logger.debug("Rotated old audio cache file: %s", old)
+        except Exception as e:
+            logger.debug("Audio cache rotation failed (non-fatal): %s", e)
 
     def start(self, track) -> None:
         self._running = True
@@ -384,19 +404,27 @@ class IncomingAudioBuffer:
         if not wav_path:
             return
         t0 = time.monotonic()
-        async with self._stt_lock:   # one at a time — avoids concurrent CPU contention
+        transcript = ""
+        try:
+            async with self._stt_lock:   # one at a time — avoids concurrent CPU contention
+                try:
+                    result = await asyncio.to_thread(self._transcribe, wav_path)
+                    transcript = result.get("transcript", "").strip() if result.get("success") else ""
+                except Exception as e:
+                    logger.error("STT failed: %s", e)
+                    return
+            stt_s = time.monotonic() - t0
+            if transcript:
+                logger.info("perf STT=%.1fs (%s) → %r", stt_s, result.get("provider", "?"), transcript[:120])
+                self._on_utterance(transcript, wav_path)
+            else:
+                logger.debug("perf STT=%.1fs → (empty)", stt_s)
+        finally:
             try:
-                result = await asyncio.to_thread(self._transcribe, wav_path)
-                transcript = result.get("transcript", "").strip() if result.get("success") else ""
-            except Exception as e:
-                logger.error("STT failed: %s", e)
-                return
-        stt_s = time.monotonic() - t0
-        if transcript:
-            logger.info("perf STT=%.1fs (%s) → %r", stt_s, result.get("provider", "?"), transcript[:120])
-            self._on_utterance(transcript, wav_path)
-        else:
-            logger.debug("perf STT=%.1fs → (empty)", stt_s)
+                os.unlink(wav_path)
+                logger.debug("Cleaned up STT WAV: %s", wav_path)
+            except Exception:
+                pass
 
     @staticmethod
     def _transcribe(wav_path: str) -> dict:

@@ -11,6 +11,8 @@ import secrets
 import sys
 import asyncio
 import logging
+import concurrent.futures
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 
 # Add vendor directory to sys.path so vendored deltachat2 can be imported
@@ -29,6 +31,14 @@ from gateway.platforms.base import (
 )
 from gateway.config import Platform, PlatformConfig
 
+# Gateway context stashed at plugin load time; used to register per-adapter RPC tools.
+_tool_ctx = None
+
+
+def _store_tool_ctx(ctx) -> None:
+    global _tool_ctx
+    _tool_ctx = ctx
+
 # Must use "hermes_plugins.*" prefix so records appear in gateway.log.
 # __name__ resolves to "adapter" (standalone module), which only goes to agent.log.
 logger = logging.getLogger("hermes_plugins.deltachat")
@@ -41,6 +51,13 @@ if os.getenv("DELTACHAT_DEBUG"):
 # Minimum required Delta Chat core version
 # Plugin will NOT connect with older versions
 MIN_DC_VERSION = "2.51.0"
+
+
+def _voice_calls_enabled() -> bool:
+    """Return True if experimental WebRTC voice calls are enabled."""
+    return os.getenv("DELTACHAT_ENABLE_VOICE_CALLS", "").strip().lower() in (
+        "1", "true", "yes", "on"
+    )
 
 # Lazy import to avoid dependency issues if deltachat2 not installed
 _DC2_AVAILABLE = None
@@ -113,9 +130,8 @@ async def _check_dc_version(rpc) -> bool:
         return True
 
     except Exception as e:
-        logger.warning(f"Could not check Delta Chat version: {e}")
-        # Don't block connection for version check failures
-        return True
+        logger.error(f"Could not check Delta Chat version: {e}")
+        return False
 
 
 class _AsyncRpc:
@@ -124,9 +140,13 @@ class _AsyncRpc:
     deltachat2.Rpc.transport.call() blocks on a threading.Event until the
     RPC server responds.  Calling it directly from an async function would
     freeze the asyncio event loop.  This wrapper makes every attribute access
-    return an async function that runs the underlying sync call in the default
-    ThreadPoolExecutor, keeping the event loop free.
+    return an async function that runs the underlying sync call in a bounded
+    ThreadPoolExecutor, keeping the event loop free while capping thread growth.
     """
+
+    _executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=8, thread_name_prefix="dc-rpc-"
+    )
 
     def __init__(self, rpc) -> None:
         object.__setattr__(self, "_rpc", rpc)
@@ -135,22 +155,26 @@ class _AsyncRpc:
         method = getattr(object.__getattribute__(self, "_rpc"), name)
         async def _async_call(*args):
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, method, *args)
+            return await loop.run_in_executor(self._executor, method, *args)
         return _async_call
 
 
-# Tracks the currently connected adapter instance; used by RPC tools.
-_active_adapter = None
+@dataclass
+class DeltaChatPluginState:
+    """All mutable plugin state scoped to a single adapter instance.
 
-# Per-session opaque token ↔ real chat_id mapping.
-# Tokens are generated once per unique chat_id using secrets.token_hex so they
-# are unguessable and stable within a process lifetime.  They are injected into
-# every incoming message text as "[dc:chat=<token>]" so the LLM always has the
-# right token in its context without ever seeing the raw numeric id.
-_chat_id_to_token: Dict[int, str] = {}
-_chat_token_to_id: Dict[str, int] = {}
+    Previously this state lived at module scope, which broke multi-profile
+    isolation. Each DeltaChatAdapter now carries its own state object; RPC
+    tools and call managers use that instance instead of a global singleton.
+    """
+    adapter: Optional["DeltaChatAdapter"] = None
+    chat_id_to_token: Dict[int, str] = field(default_factory=dict)
+    chat_token_to_id: Dict[str, int] = field(default_factory=dict)
+    spec_cache: Optional[dict] = None
+
 
 # Methods that mutate or destroy chat data — blocked from dc_safe_rpc_call.
+# Kept at module level because the set itself is immutable and shared.
 _DESTRUCTIVE_METHODS = frozenset({
     "delete_chat",
     "delete_messages",
@@ -160,18 +184,22 @@ _DESTRUCTIVE_METHODS = frozenset({
     "leave_group",
 })
 
-# Cached OpenRPC spec (fetched lazily on first use).
+
+# Backward-compatible module-level references (deprecated).
+# These are kept only so that external callers that import them directly do not
+# break. They are no longer mutated by the adapter after TC-002/TC-003/TC-004.
+_active_adapter = None
+_chat_id_to_token: Dict[int, str] = {}
+_chat_token_to_id: Dict[str, int] = {}
 _spec_cache: Optional[dict] = None
 
 
-async def _get_or_create_chat_token(rpc, account_id: int, chat_id: int) -> str:
-    """Return a stable opaque token for *chat_id*.
-
-    Checks memory cache first, then DC UI config (persists across restarts),
-    creating and storing a new token if none exists yet.
-    """
-    if chat_id in _chat_id_to_token:
-        return _chat_id_to_token[chat_id]
+async def _get_or_create_chat_token(
+    state: DeltaChatPluginState, rpc, account_id: int, chat_id: int
+) -> str:
+    """Return a stable opaque token for *chat_id* scoped to *state*."""
+    if chat_id in state.chat_id_to_token:
+        return state.chat_id_to_token[chat_id]
 
     dc_key = f"ui.hermes.chat_token.{chat_id}"
     try:
@@ -189,19 +217,17 @@ async def _get_or_create_chat_token(rpc, account_id: int, chat_id: int) -> str:
         except Exception as e:
             logger.warning(f"Could not persist chat token to DC config: {e}")
 
-    _chat_id_to_token[chat_id] = token
-    _chat_token_to_id[token] = chat_id
+    state.chat_id_to_token[chat_id] = token
+    state.chat_token_to_id[token] = chat_id
     return token
 
 
-async def _resolve_chat_token(rpc, account_id: int, token: str) -> Optional[int]:
-    """Resolve an opaque token back to the real chat_id.
-
-    Checks memory cache first, then DC UI config as a fallback for
-    tokens issued in a previous session.
-    """
-    if token in _chat_token_to_id:
-        return _chat_token_to_id[token]
+async def _resolve_chat_token(
+    state: DeltaChatPluginState, rpc, account_id: int, token: str
+) -> Optional[int]:
+    """Resolve an opaque token back to the real chat_id scoped to *state*."""
+    if token in state.chat_token_to_id:
+        return state.chat_token_to_id[token]
 
     dc_key = f"ui.hermes.token_chat.{token}"
     try:
@@ -211,20 +237,20 @@ async def _resolve_chat_token(rpc, account_id: int, token: str) -> Optional[int]
 
     if chat_id_str:
         chat_id = int(chat_id_str)
-        _chat_token_to_id[token] = chat_id
-        _chat_id_to_token[chat_id] = token
+        state.chat_token_to_id[token] = chat_id
+        state.chat_id_to_token[chat_id] = token
         return chat_id
 
     return None
 
 
-async def _fetch_spec() -> dict:
+async def _fetch_spec(state: DeltaChatPluginState) -> dict:
     """Fetch and cache the OpenRPC spec from deltachat-rpc-server --openrpc."""
-    global _spec_cache
-    if _spec_cache is None:
+    if state.spec_cache is None:
+        adapter = state.adapter
         rpc_server = (
-            _active_adapter._get_rpc_server_path()
-            if _active_adapter is not None
+            adapter._get_rpc_server_path()
+            if adapter is not None
             else os.getenv("DELTACHAT_RPC_SERVER", "deltachat-rpc-server")
         )
         proc = await asyncio.create_subprocess_exec(
@@ -235,8 +261,59 @@ async def _fetch_spec() -> dict:
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
             raise RuntimeError(f"deltachat-rpc-server --openrpc failed: {stderr.decode().strip()}")
-        _spec_cache = json.loads(stdout.decode())
-    return _spec_cache
+        state.spec_cache = json.loads(stdout.decode())
+    return state.spec_cache
+
+
+class DeltaChatRpcClient:
+    """Lifecycle wrapper around the deltachat2 IOTransport and Rpc client.
+
+    Encapsulates transport startup, async RPC wrapping, and readiness polling
+    so that the adapter can detect failures and reconnect without duplicating
+    this logic.
+    """
+
+    def __init__(self, accounts_dir: str, rpc_server_path: str):
+        self.accounts_dir = accounts_dir
+        self.rpc_server_path = rpc_server_path
+        self.transport = None
+        self.rpc = None
+
+    async def start(self, timeout: float = 10.0) -> bool:
+        """Start the transport and wait until the RPC server is ready."""
+        import deltachat2
+        from deltachat2.transport import IOTransport
+
+        os.environ["DC_ACCOUNTS_PATH"] = self.accounts_dir
+        self.transport = IOTransport(
+            accounts_dir=self.accounts_dir,
+            rpc_server=self.rpc_server_path,
+        )
+        self.transport.start()
+        self.rpc = _AsyncRpc(deltachat2.Rpc(self.transport))
+        return await self._wait_ready(timeout)
+
+    async def _wait_ready(self, timeout: float) -> bool:
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                await self.rpc.get_all_accounts()
+                return True
+            except Exception:
+                await asyncio.sleep(0.5)
+        return False
+
+    def stop(self) -> None:
+        if self.transport:
+            try:
+                self.transport.close()
+            except Exception as e:
+                logger.debug(f"Error closing transport: {e}")
+            self.transport = None
+        self.rpc = None
+
+    def is_alive(self) -> bool:
+        return self.transport is not None and self.rpc is not None
 
 
 class DeltaChatAdapter(BasePlatformAdapter):
@@ -253,6 +330,7 @@ class DeltaChatAdapter(BasePlatformAdapter):
             config: Hermes PlatformConfig for this profile
         """
         super().__init__(config, Platform("deltachat-platform"))
+        self.state = DeltaChatPluginState(adapter=self)
         self.rpc = None
         self._transport = None
         self.account_id: Optional[int] = None
@@ -260,6 +338,7 @@ class DeltaChatAdapter(BasePlatformAdapter):
         self._running = False
         self._dc_config_dir: Optional[str] = None
         self._call_manager = None
+        self._reconnecting = False
 
 
 
@@ -323,16 +402,13 @@ class DeltaChatAdapter(BasePlatformAdapter):
             rpc_server_path = self._get_rpc_server_path()
             logger.debug(f"Using RPC server: {rpc_server_path}")
 
-            # Initialize RPC client with deltachat2, passing accounts_dir to transport
-            from deltachat2.transport import IOTransport
-
-            os.environ["DC_ACCOUNTS_PATH"] = dc_accounts_path
-            self._transport = IOTransport(accounts_dir=dc_accounts_path, rpc_server=rpc_server_path)
-            self._transport.start()
-            self.rpc = _AsyncRpc(deltachat2.Rpc(self._transport))
-
-            # Wait for RPC server to be ready
-            await asyncio.sleep(1)
+            # Initialize RPC client lifecycle wrapper
+            self._rpc_client = DeltaChatRpcClient(dc_accounts_path, rpc_server_path)
+            if not await self._rpc_client.start():
+                logger.error("RPC server failed to start")
+                self._cleanup()
+                return False
+            self.rpc = self._rpc_client.rpc
 
             # Check version - REJECT if too old
             if not await _check_dc_version(self.rpc):
@@ -368,11 +444,23 @@ class DeltaChatAdapter(BasePlatformAdapter):
             self._event_loop_task = asyncio.create_task(self._event_listener())
 
             self._mark_connected()
-            global _active_adapter
-            _active_adapter = self
 
-            from call_handler import CallManager
-            self._call_manager = CallManager(self)
+            # Register RPC tools bound to this adapter instance.
+            try:
+                if _tool_ctx is not None:
+                    register_rpc_tools(_tool_ctx, self)
+            except Exception as e:
+                logger.warning(f"Could not register RPC tools: {e}")
+
+            # Voice calls are opt-in; see _voice_calls_enabled() check below.
+            self._call_manager = None
+            if _voice_calls_enabled():
+                try:
+                    from call_handler import CallManager
+                    self._call_manager = CallManager(self)
+                    logger.info("Voice calls enabled")
+                except ImportError as e:
+                    logger.error("Voice calls enabled but aiortc/deltachat2 missing: %s", e)
 
             # Log the bot's address for reference
             addr = await self.get_my_address()
@@ -389,19 +477,13 @@ class DeltaChatAdapter(BasePlatformAdapter):
 
     def _cleanup(self) -> None:
         """Clean up resources."""
-        global _active_adapter
-        if _active_adapter is self:
-            _active_adapter = None
         self._running = False
         if self._event_loop_task:
             self._event_loop_task.cancel()
             self._event_loop_task = None
-        if self._transport:
-            try:
-                self._transport.close()
-            except Exception as e:
-                logger.warning(f"Error closing transport: {e}")
-            self._transport = None
+        if self._rpc_client:
+            self._rpc_client.stop()
+            self._rpc_client = None
         self.rpc = None
         self.account_id = None
 
@@ -954,17 +1036,51 @@ body {{
 
     async def _event_listener(self) -> None:
         """Listen for Delta Chat events and forward to Hermes."""
+        consecutive_errors = 0
         while self._running:
             try:
+                if self._rpc_client is None or not self._rpc_client.is_alive():
+                    raise RuntimeError("RPC client is not alive")
                 if self.account_id:
                     envelope = await self.rpc.get_next_event()
                     if envelope.get("context_id") == self.account_id:
                         await self._handle_dc_event(envelope.get("event", {}))
+                consecutive_errors = 0
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Event listener error: {e}")
+                consecutive_errors += 1
+                logger.error(f"Event listener error ({consecutive_errors}): {e}")
+                if consecutive_errors >= 3 and not self._reconnecting:
+                    logger.warning("Triggering reconnect due to repeated event-loop errors")
+                    asyncio.create_task(self._reconnect())
+                    break
                 await asyncio.sleep(1)
+
+    async def _reconnect(self) -> bool:
+        """Reconnect with exponential backoff."""
+        if self._reconnecting:
+            return False
+        self._reconnecting = True
+        logger.info("Delta Chat reconnecting...")
+        try:
+            await self.disconnect()
+        except Exception as e:
+            logger.debug(f"Disconnect during reconnect failed (non-fatal): {e}")
+        try:
+            for attempt in range(1, 6):
+                logger.info(f"Reconnect attempt {attempt}/5")
+                if await self.connect():
+                    logger.info("Delta Chat reconnected successfully")
+                    return True
+                wait = min(2 ** attempt, 30)
+                logger.info(f"Reconnect attempt {attempt} failed; waiting {wait}s")
+                await asyncio.sleep(wait)
+            logger.error("Delta Chat reconnect failed after 5 attempts")
+            self._mark_disconnected()
+            return False
+        finally:
+            self._reconnecting = False
 
     async def _handle_dc_event(self, event: Dict[str, Any]) -> None:
         """Handle a Delta Chat event and convert to Hermes MessageEvent.
@@ -985,6 +1101,8 @@ body {{
         elif event_kind == EventType.INCOMING_CALL:
             if self._call_manager:
                 asyncio.create_task(self._call_manager.handle_incoming_call(event))
+            else:
+                logger.info("Incoming call ignored: voice calls disabled")
         elif event_kind == EventType.CALL_ENDED:
             if self._call_manager:
                 asyncio.create_task(self._call_manager.handle_call_ended(event))
@@ -1078,7 +1196,9 @@ body {{
             if text.startswith("/"):
                 text_with_token = text
             else:
-                token = await _get_or_create_chat_token(self.rpc, self.account_id, int(chat_id))
+                token = await _get_or_create_chat_token(
+                    self.state, self.rpc, self.account_id, int(chat_id)
+                )
                 text_with_token = f"{text}\n[dc:chat={token}]"
 
             # Build and handle message event
@@ -1197,7 +1317,9 @@ body {{
             user_name=user_name,
         )
 
-        token = await _get_or_create_chat_token(self.rpc, self.account_id, int(chat_id))
+        token = await _get_or_create_chat_token(
+            self.state, self.rpc, self.account_id, int(chat_id)
+        )
 
         from deltachat2.types import MessageViewtype
 
@@ -1614,8 +1736,8 @@ def register_platform(ctx):
         logger.warning("Skills directory not found: %s", skills_dir)
 
 
-def register_rpc_tools(ctx) -> None:
-    """Register Delta Chat RPC tools.
+def register_rpc_tools(ctx, adapter: "DeltaChatAdapter") -> None:
+    """Register Delta Chat RPC tools bound to a specific adapter instance.
 
     Always registers:
       - dc_rpc_spec: full OpenRPC spec
@@ -1625,10 +1747,11 @@ def register_rpc_tools(ctx) -> None:
     Only registers when DELTACHAT_ENABLE_RAW_RPC is set:
       - dc_rpc_call: unrestricted access to any RPC method
     """
+    state = adapter.state
 
     async def _spec_handler(args: dict = None, **kwargs) -> str:
         try:
-            return json.dumps(await _fetch_spec(), indent=2)
+            return json.dumps(await _fetch_spec(state), indent=2)
         except Exception as e:
             return f"Error: {e}"
 
@@ -1637,10 +1760,10 @@ def register_rpc_tools(ctx) -> None:
         params = (args or {}).get("params") or []
         if not method or not isinstance(method, str):
             return json.dumps({"error": "Missing 'method' (snake_case RPC name)."})
-        if _active_adapter is None or _active_adapter.rpc is None:
+        if adapter is None or adapter.rpc is None:
             return json.dumps({"error": "Delta Chat is not connected"})
         try:
-            result = await getattr(_active_adapter.rpc, method)(*params)
+            result = await getattr(adapter.rpc, method)(*params)
             return json.dumps(result, default=str)
         except Exception as e:
             return json.dumps({"error": str(e)})
@@ -1648,7 +1771,7 @@ def register_rpc_tools(ctx) -> None:
     async def _chat_spec_handler(args: dict = None, **kwargs) -> str:
         """Return only the chatId-scoped, non-destructive methods."""
         try:
-            spec = await _fetch_spec()
+            spec = await _fetch_spec(state)
         except Exception as e:
             return f"Error: {e}"
         safe_methods = [
@@ -1666,12 +1789,11 @@ def register_rpc_tools(ctx) -> None:
         params = (args or {}).get("params") or []
         if not method or not isinstance(method, str):
             return json.dumps({"error": "Missing 'method' (snake_case RPC name). Use dc_chat_rpc_spec to find one."})
-        adapter = _active_adapter
         if adapter is None or adapter.rpc is None:
             return {"error": "Delta Chat is not connected"}
 
         # Resolve token → real chat_id
-        real_chat_id = await _resolve_chat_token(adapter.rpc, adapter.account_id, chat_token)
+        real_chat_id = await _resolve_chat_token(state, adapter.rpc, adapter.account_id, chat_token)
         if real_chat_id is None:
             return json.dumps({"error": "Unknown chat_token — use the [dc:chat=...] value from your message"})
 
@@ -1685,7 +1807,7 @@ def register_rpc_tools(ctx) -> None:
 
         # Verify method exists and has a chatId param
         try:
-            spec = await _fetch_spec()
+            spec = await _fetch_spec(state)
         except Exception as e:
             return json.dumps({"error": f"Could not fetch spec: {e}"})
 
@@ -1707,7 +1829,6 @@ def register_rpc_tools(ctx) -> None:
             return json.dumps({"error": str(e)})
 
     async def _end_call_handler(args: dict, **kwargs) -> str:
-        adapter = _active_adapter
         if adapter is None or adapter._call_manager is None:
             return json.dumps({"error": "No active call"})
 
@@ -1727,14 +1848,13 @@ def register_rpc_tools(ctx) -> None:
         chat_token = args.get("chat_token")
         # `opening` is the exact line spoken on connect; accept `topic` as alias.
         opening = (args.get("opening") or args.get("topic") or "").strip()
-        adapter = _active_adapter
         if adapter is None or adapter._call_manager is None:
             return json.dumps({"error": "Delta Chat not connected"})
 
         if not opening:
             return json.dumps({"error": "Provide 'opening' — the exact words to say when they pick up."})
 
-        real_chat_id = await _resolve_chat_token(adapter.rpc, adapter.account_id, chat_token)
+        real_chat_id = await _resolve_chat_token(state, adapter.rpc, adapter.account_id, chat_token)
         if real_chat_id is None:
             return json.dumps({"error": "Unknown chat_token — use the [dc:chat=...] value"})
 

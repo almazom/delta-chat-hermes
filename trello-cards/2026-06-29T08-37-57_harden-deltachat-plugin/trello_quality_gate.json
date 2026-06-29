@@ -1,0 +1,10 @@
+{
+  "score_method": "structural+expert",
+  "threshold": 95,
+  "passed": true,
+  "card_count": 19,
+  "issues": [],
+  "blockers": [],
+  "developer_success_estimate": 96,
+  "final_ready_for_development": true
+}
