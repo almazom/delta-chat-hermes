@@ -931,6 +931,7 @@ body {{
                 logger.info(f"Reconnect attempt {attempt}/5")
                 if await self.connect():
                     logger.info("Delta Chat reconnected successfully")
+                    self._mark_connected()
                     return True
                 wait = min(2**attempt, 30)
                 logger.info(f"Reconnect attempt {attempt} failed; waiting {wait}s")

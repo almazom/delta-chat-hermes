@@ -7,10 +7,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 def _fake_adapter():
     """Build a minimal fake adapter for rpc_tools tests."""
+    from chat_tokens import ChatTokenStore
+
     adapter = MagicMock()
     adapter.account_id = 1
     adapter.state = MagicMock()
-    adapter.state.chat_tokens = MagicMock()
+    adapter.state.chat_tokens = ChatTokenStore()
     adapter.state.spec_cache = None
     adapter.rpc = MagicMock()
     adapter.rpc.get_config = AsyncMock(return_value=None)
@@ -114,7 +116,7 @@ async def test_dc_safe_rpc_call_injects_account_and_chat(fake_ctx, fake_adapter,
     rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
     handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
 
-    fake_adapter.rpc.get_config.return_value = "42"
+    fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 42
     fake_adapter.rpc.get_basic_chat_info = AsyncMock(return_value={"id": 42, "name": "Test"})
     fake_adapter.state.spec_cache = {
         "methods": [
@@ -156,3 +158,108 @@ async def test_dc_chat_rpc_spec_only_lists_allowed_methods(fake_ctx, fake_adapte
     names = [m["name"] for m in parsed["methods"]]
     assert "get_basic_chat_info" in names
     assert "send_msg" not in names
+
+
+@pytest.mark.asyncio
+async def test_dc_end_call_unknown_token(fake_ctx, fake_adapter):
+    """Ending a call with an unknown token fails cleanly."""
+    import rpc_tools
+
+    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    handler = fake_ctx.tools["dc_end_call"]["handler"]
+
+    fake_adapter._call_manager = MagicMock()
+    result = await handler({"chat_token": "nope"})
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "Unknown chat_token" in parsed["error"]
+
+
+@pytest.mark.asyncio
+async def test_dc_end_call_rejects_inactive_chat(fake_ctx, fake_adapter):
+    """Ending a call for a chat with no active call returns a clear error."""
+    import rpc_tools
+
+    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    handler = fake_ctx.tools["dc_end_call"]["handler"]
+
+    fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 42
+    fake_adapter._call_manager = MagicMock()
+    fake_adapter._call_manager.active_chat_ids.return_value = ["99"]
+
+    result = await handler({"chat_token": "token123"})
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "No active call for this chat" in parsed["error"]
+
+
+@pytest.mark.asyncio
+async def test_dc_end_call_success(fake_ctx, fake_adapter):
+    """Ending a call for an active chat requests hangup."""
+    import rpc_tools
+
+    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    handler = fake_ctx.tools["dc_end_call"]["handler"]
+
+    fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 42
+    fake_adapter._call_manager = MagicMock()
+    fake_adapter._call_manager.active_chat_ids.return_value = ["42"]
+    fake_adapter._call_manager.request_hangup = AsyncMock(return_value=True)
+
+    result = await handler({"chat_token": "token123"})
+    parsed = json.loads(result)
+    assert parsed.get("success") is True
+    fake_adapter._call_manager.request_hangup.assert_awaited_once_with("42")
+
+
+@pytest.mark.asyncio
+async def test_dc_start_call_requires_opening(fake_ctx, fake_adapter):
+    """Starting a call without an opening line is rejected."""
+    import rpc_tools
+
+    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    handler = fake_ctx.tools["dc_start_call"]["handler"]
+
+    fake_adapter._call_manager = MagicMock()
+    result = await handler({"chat_token": "token123"})
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "opening" in parsed["error"]
+
+
+@pytest.mark.asyncio
+async def test_dc_start_call_success(fake_ctx, fake_adapter):
+    """Starting a call resolves the token and delegates to the call manager."""
+    import rpc_tools
+
+    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    handler = fake_ctx.tools["dc_start_call"]["handler"]
+
+    fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 7
+    fake_adapter._call_manager = MagicMock()
+    fake_adapter._call_manager.start_call = AsyncMock(return_value=123)
+
+    result = await handler({"chat_token": "token123", "opening": "Hello!"})
+    parsed = json.loads(result)
+    assert parsed.get("success") is True
+    assert parsed.get("msg_id") == 123
+    fake_adapter._call_manager.start_call.assert_awaited_once_with("7", opening="Hello!")
+
+
+@pytest.mark.asyncio
+async def test_dc_start_call_timeout(fake_ctx, fake_adapter):
+    """An unanswered call surfaces a timeout error."""
+    import asyncio
+    import rpc_tools
+
+    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    handler = fake_ctx.tools["dc_start_call"]["handler"]
+
+    fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 7
+    fake_adapter._call_manager = MagicMock()
+    fake_adapter._call_manager.start_call = AsyncMock(side_effect=asyncio.TimeoutError)
+
+    result = await handler({"chat_token": "token123", "opening": "Hi"})
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "not answered" in parsed["error"]

@@ -323,3 +323,18 @@ class TestDecodeTts:
         total = sum(f.samples for f in frames)
         expected = seconds * ch._SAMPLE_RATE  # 48 kHz target
         assert abs(total - expected) < ch.HermesAudioTrack._FRAME_SAMPLES * 2
+
+
+class TestCallManagerActiveChats:
+    def test_active_chat_ids_returns_current_chats(self):
+        from unittest.mock import MagicMock
+
+        mgr = ch.CallManager(adapter=MagicMock())
+        mgr._chat_to_msg = {"12": 1, "34": 2}
+        assert sorted(mgr.active_chat_ids()) == ["12", "34"]
+
+    def test_active_chat_ids_empty_when_no_calls(self):
+        from unittest.mock import MagicMock
+
+        mgr = ch.CallManager(adapter=MagicMock())
+        assert mgr.active_chat_ids() == []
