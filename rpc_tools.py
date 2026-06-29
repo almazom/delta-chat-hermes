@@ -38,17 +38,14 @@ def register_rpc_tools(ctx, adapter) -> None:
       - dc_rpc_call: unrestricted access to any RPC method
     """
     store = adapter.state.chat_tokens
-    spec_cache_ref = {"value": adapter.state.spec_cache}
 
     def _rpc_server_path() -> str:
         return adapter._get_rpc_server_path()
 
     async def _get_spec() -> dict:
-        spec = await _fetch_spec(_rpc_server_path(), spec_cache_ref["value"])
         if adapter.state.spec_cache is None:
-            adapter.state.spec_cache = spec
-            spec_cache_ref["value"] = spec
-        return spec
+            adapter.state.spec_cache = await _fetch_spec(_rpc_server_path(), None)
+        return adapter.state.spec_cache
 
     async def _spec_handler(args: dict = None, **kwargs) -> str:
         try:
@@ -91,7 +88,7 @@ def register_rpc_tools(ctx, adapter) -> None:
         if not method or not isinstance(method, str):
             return json.dumps({"error": "Missing 'method' (snake_case RPC name). Use dc_chat_rpc_spec to find one."})
         if adapter is None or adapter.rpc is None:
-            return {"error": "Delta Chat is not connected"}
+            return json.dumps({"error": "Delta Chat is not connected"})
 
         real_chat_id = await resolve_chat_token(store, adapter.rpc, adapter.account_id, chat_token)
         if real_chat_id is None:
