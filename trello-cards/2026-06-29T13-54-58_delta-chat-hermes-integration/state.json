@@ -1,0 +1,78 @@
+{
+  "project": "delta-chat-hermes-integration",
+  "source": "trello-cards/2026-06-29T13-54-58_delta-chat-hermes-integration/",
+  "kanban_path": "trello-cards/2026-06-29T13-54-58_delta-chat-hermes-integration/kanban.json",
+  "overall_status": "in_progress",
+  "current_card": "INT-003",
+  "current_stage": "02-config",
+  "progress_percent": 28,
+  "started_at": "2026-06-29T13:54:58+00:00",
+  "completed_at": null,
+  "updated_at": "2026-06-29T13:54:58+00:00",
+  "done_count": 2,
+  "blocked_count": 0,
+  "total_cards": 7,
+  "total_sp": 11,
+  "agile_states": {
+    "backlog": 0,
+    "in_progress": 1,
+    "code_review": 0,
+    "code_simplification": 0,
+    "auto_commit": 0,
+    "done": 2
+  },
+  "cards": {
+    "INT-001": {
+      "status": "done",
+      "sp": 1,
+      "stage_history": [
+        {"stage": "backlog", "at": "2026-06-29T13:54:58+00:00"},
+        {"stage": "done", "at": "2026-06-29T13:54:58+00:00"}
+      ]
+    },
+    "INT-002": {
+      "status": "done",
+      "sp": 1,
+      "stage_history": [
+        {"stage": "backlog", "at": "2026-06-29T13:54:58+00:00"},
+        {"stage": "done", "at": "2026-06-29T13:54:58+00:00"}
+      ]
+    },
+    "INT-003": {
+      "status": "in_progress",
+      "sp": 2,
+      "stage_history": [
+        {"stage": "backlog", "at": "2026-06-29T13:54:58+00:00"},
+        {"stage": "in_progress", "at": "2026-06-29T13:54:58+00:00"}
+      ]
+    },
+    "INT-004": {
+      "status": "backlog",
+      "sp": 2,
+      "stage_history": [
+        {"stage": "backlog", "at": "2026-06-29T13:54:58+00:00"}
+      ]
+    },
+    "INT-005": {
+      "status": "backlog",
+      "sp": 2,
+      "stage_history": [
+        {"stage": "backlog", "at": "2026-06-29T13:54:58+00:00"}
+      ]
+    },
+    "INT-006": {
+      "status": "backlog",
+      "sp": 2,
+      "stage_history": [
+        {"stage": "backlog", "at": "2026-06-29T13:54:58+00:00"}
+      ]
+    },
+    "INT-007": {
+      "status": "backlog",
+      "sp": 1,
+      "stage_history": [
+        {"stage": "backlog", "at": "2026-06-29T13:54:58+00:00"}
+      ]
+    }
+  }
+}

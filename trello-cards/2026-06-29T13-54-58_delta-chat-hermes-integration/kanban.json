@@ -1,0 +1,19 @@
+{
+  "project": "delta-chat-hermes-integration",
+  "lanes": [
+    {"id": "01-infrastructure", "name": "Infrastructure", "order": 1},
+    {"id": "02-config", "name": "Configuration", "order": 2},
+    {"id": "03-account", "name": "Account Setup", "order": 3},
+    {"id": "04-smoke-test", "name": "Smoke Test", "order": 4},
+    {"id": "05-docs", "name": "Documentation", "order": 5}
+  ],
+  "cards": [
+    {"id": "INT-001", "title": "Install deltachat-rpc-server binary", "lane": "01-infrastructure", "sp": 1},
+    {"id": "INT-002", "title": "Link plugin into Hermes plugins directory", "lane": "01-infrastructure", "sp": 1},
+    {"id": "INT-003", "title": "Configure Hermes config.yaml for deltachat-platform", "lane": "02-config", "sp": 2},
+    {"id": "INT-004", "title": "Create Delta Chat account via setup.py", "lane": "03-account", "sp": 2},
+    {"id": "INT-005", "title": "Start Hermes gateway and verify DC connection", "lane": "04-smoke-test", "sp": 2},
+    {"id": "INT-006", "title": "Smoke-test send/receive message", "lane": "04-smoke-test", "sp": 2},
+    {"id": "INT-007", "title": "Document integration runbook", "lane": "05-docs", "sp": 1}
+  ]
+}
