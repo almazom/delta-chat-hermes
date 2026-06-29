@@ -9,7 +9,7 @@
   },
   "cards": {
     "TC-001": {
-      "status": "in_progress",
+      "status": "done",
       "epic": "01-state-boundaries",
       "sp": 2,
       "deps": [],
@@ -17,7 +17,7 @@
       "capabilities": []
     },
     "TC-002": {
-      "status": "backlog",
+      "status": "done",
       "epic": "01-state-boundaries",
       "sp": 3,
       "deps": [
@@ -27,7 +27,7 @@
       "capabilities": []
     },
     "TC-003": {
-      "status": "backlog",
+      "status": "done",
       "epic": "01-state-boundaries",
       "sp": 2,
       "deps": [
@@ -37,7 +37,7 @@
       "capabilities": []
     },
     "TC-004": {
-      "status": "backlog",
+      "status": "done",
       "epic": "01-state-boundaries",
       "sp": 1,
       "deps": [
@@ -47,7 +47,7 @@
       "capabilities": []
     },
     "TC-005": {
-      "status": "backlog",
+      "status": "done",
       "epic": "01-state-boundaries",
       "sp": 1,
       "deps": [],
@@ -55,7 +55,7 @@
       "capabilities": []
     },
     "TC-006": {
-      "status": "backlog",
+      "status": "done",
       "epic": "02-reliability-reconnects",
       "sp": 3,
       "deps": [
@@ -65,7 +65,7 @@
       "capabilities": []
     },
     "TC-007": {
-      "status": "backlog",
+      "status": "done",
       "epic": "02-reliability-reconnects",
       "sp": 2,
       "deps": [
@@ -75,7 +75,7 @@
       "capabilities": []
     },
     "TC-008": {
-      "status": "backlog",
+      "status": "done",
       "epic": "02-reliability-reconnects",
       "sp": 4,
       "deps": [
@@ -126,7 +126,7 @@
       "capabilities": []
     },
     "TC-013": {
-      "status": "backlog",
+      "status": "done",
       "epic": "04-voice-hardening",
       "sp": 2,
       "deps": [
@@ -136,7 +136,7 @@
       "capabilities": []
     },
     "TC-014": {
-      "status": "backlog",
+      "status": "done",
       "epic": "04-voice-hardening",
       "sp": 2,
       "deps": [
@@ -146,7 +146,7 @@
       "capabilities": []
     },
     "TC-015": {
-      "status": "backlog",
+      "status": "done",
       "epic": "04-voice-hardening",
       "sp": 1,
       "deps": [
@@ -156,7 +156,7 @@
       "capabilities": []
     },
     "TC-016": {
-      "status": "backlog",
+      "status": "done",
       "epic": "05-automation-tests",
       "sp": 2,
       "deps": [],
@@ -164,7 +164,7 @@
       "capabilities": []
     },
     "TC-017": {
-      "status": "backlog",
+      "status": "review",
       "epic": "05-automation-tests",
       "sp": 2,
       "deps": [
@@ -175,7 +175,7 @@
       "capabilities": []
     },
     "TC-018": {
-      "status": "backlog",
+      "status": "review",
       "epic": "05-automation-tests",
       "sp": 3,
       "deps": [
@@ -205,16 +205,100 @@
       "from": "backlog",
       "to": "in_progress",
       "at": "2026-06-29T08:48:40.366110+00:00"
+    },
+    {
+      "card": "TC-001",
+      "from": "in_progress",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-002",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-003",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-004",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-005",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-006",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-007",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-008",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-013",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-014",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-015",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-016",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-017",
+      "from": "backlog",
+      "to": "review",
+      "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-018",
+      "from": "backlog",
+      "to": "review",
+      "at": "2026-06-29T09:08:52.162598+00:00"
     }
   ],
   "blockers": [],
   "status_counts": {
-    "backlog": 18,
-    "in_progress": 1,
-    "review": 0,
+    "backlog": 5,
+    "in_progress": 0,
+    "review": 2,
     "simplification": 0,
     "auto_commit": 0,
-    "done": 0,
+    "done": 12,
     "blocked": 0
   }
 }

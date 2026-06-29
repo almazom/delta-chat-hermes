@@ -1,13 +1,13 @@
 # Harden hermes-deltachat-platform — Board
 
-Total cards: 19 | Total SP: 40 | Done: 0/19 (0%)
+Total cards: 19 | Total SP: 40 | Done: 12/19 (63%)
 
 ────────────────────────────────────────────────────────
-Epic 01 — State & Boundaries   ████░░░░░░  0%  (0/5 done, 9 SP)
-Epic 02 — Reliability          ████░░░░░░  0%  (0/3 done, 9 SP)
+Epic 01 — State & Boundaries   ██████████ 100%  (5/5 done, 9 SP)
+Epic 02 — Reliability          ██████████ 100%  (3/3 done, 9 SP)
 Epic 03 — Module Refactor      ████░░░░░░  0%  (0/4 done, 11 SP)
-Epic 04 — Voice Hardening      ████░░░░░░  0%  (0/3 done, 5 SP)
-Epic 05 — Automation & Tests   ████░░░░░░  0%  (0/4 done, 9 SP)
+Epic 04 — Voice Hardening      ██████████ 100%  (3/3 done, 5 SP)
+Epic 05 — Automation & Tests   ████░░░░░░  0%  (0/4 done, 9 SP)  [2 in review]
 ────────────────────────────────────────────────────────
 
 ## Critical path
