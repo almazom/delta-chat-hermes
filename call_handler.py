@@ -636,6 +636,8 @@ class CallManager:
         with contextlib.suppress(Exception):
             await self._on_call_loop(self._teardown())
         self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread.is_alive():
+            self._thread.join(timeout=5)
 
     # ------------------------------------------------------------------ #
     # Event handlers (run on the call loop)                               #
@@ -726,9 +728,23 @@ class CallManager:
         is the only one that gathers + checks correctly.
         """
         ice_json = await self._adapter.rpc.ice_servers(self._adapter.account_id)
-        logger.debug("ice_servers raw: %s", ice_json)  # debug: contains TURN credentials
+        raw_servers = json.loads(ice_json) or []
+        # Log a sanitized summary — never the raw credentials.
+        safe_summary = []
+        for s in raw_servers:
+            urls = s.get("urls", [])
+            if isinstance(urls, str):
+                urls = [urls]
+            safe_summary.append(
+                {
+                    "urls": [u for u in urls if "[" not in u],
+                    "has_credential": bool(s.get("credential")),
+                    "has_username": bool(s.get("username")),
+                }
+            )
+        logger.debug("ice_servers summary: %s", safe_summary)
         ice_servers = []
-        for s in json.loads(ice_json) or []:
+        for s in raw_servers:
             urls = s.get("urls", [])
             if isinstance(urls, str):
                 urls = [urls]

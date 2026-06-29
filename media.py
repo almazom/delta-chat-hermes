@@ -11,16 +11,35 @@ logger = logging.getLogger("hermes_plugins.deltachat.media")
 
 
 def resolve_blob_path(filename: str, dc_config_dir: str) -> Optional[str]:
-    """Resolve a DC file path to an accessible absolute path."""
+    """Resolve a DC file path to an accessible absolute path inside the blob tree."""
     if not filename:
         return None
-    if os.path.exists(filename):
-        return filename
-    blob_path = os.path.join(dc_config_dir, "blobs", os.path.basename(filename))
-    if os.path.exists(blob_path):
-        return blob_path
-    logger.warning("Media file not found at %r or %r", filename, blob_path)
+    blobs_dir = os.path.join(dc_config_dir, "blobs")
+    candidates = []
+    if os.path.isabs(filename):
+        candidates.append(filename)
+    else:
+        candidates.append(os.path.join(blobs_dir, filename))
+        candidates.append(os.path.join(blobs_dir, os.path.basename(filename)))
+    for candidate in candidates:
+        candidate = os.path.abspath(candidate)
+        if not _is_under(candidate, blobs_dir):
+            logger.warning("Rejecting media path outside blob directory: %r", candidate)
+            return None
+        if os.path.exists(candidate):
+            return candidate
+    logger.warning("Media file not found at %r (blobs dir: %r)", filename, blobs_dir)
     return None
+
+
+def _is_under(path: str, root: str) -> bool:
+    """Return True if *path* is equal to or inside *root* after resolving."""
+    try:
+        return os.path.samefile(path, root) or os.path.commonpath(
+            [os.path.realpath(path), os.path.realpath(root)]
+        ) == os.path.realpath(root)
+    except (ValueError, OSError):
+        return False
 
 
 def copy_to_hermes_cache(src: str, kind: str) -> str:

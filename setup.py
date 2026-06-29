@@ -4,6 +4,7 @@ Provides interactive account creation with relay server discovery.
 """
 
 import argparse
+import getpass
 import re
 import time
 import urllib.request
@@ -174,7 +175,7 @@ class DeltaChatAccountSetup:
                 elif account_type == "2":
                     # Email credentials
                     email = input("\nEmail: ").strip()
-                    password = input("Password: ").strip()
+                    password = getpass.getpass("Password: ").strip()
 
                     self.rpc.add_or_update_transport(account_id, {"addr": email, "password": password})
                     print(f"Transport configured using email: {email}")
@@ -364,7 +365,6 @@ def _build_argparser():
     parser.add_argument("--non-interactive", action="store_true", help="Run without prompts")
     parser.add_argument("--relay", default=None, help="Public relay domain, e.g. nine.testrun.org")
     parser.add_argument("--email", default=None, help="Email address for existing credentials")
-    parser.add_argument("--password", default=None, help="Password for existing email")
     parser.add_argument("--name", default=None, help="Display name for the bot")
     parser.add_argument("--profile", default=None, help="Hermes profile name")
     return parser
@@ -401,6 +401,9 @@ if __name__ == "__main__":
 
     # Select profile
     if args.non_interactive and args.profile:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", args.profile):
+            print("Error: profile name must contain only letters, numbers, underscores, or hyphens")
+            sys.exit(1)
         profile_name = args.profile
         hermes_home = os.path.join(os.path.expanduser("~/.hermes"), "profiles", args.profile)
         if not os.path.isdir(hermes_home):
@@ -411,8 +414,6 @@ if __name__ == "__main__":
     # Set accounts directory
     dc_accounts_path = os.path.join(hermes_home, "deltachat-platform")
     os.makedirs(dc_accounts_path, exist_ok=True)
-    os.environ["DC_ACCOUNTS_PATH"] = dc_accounts_path
-    os.environ["HERMES_HOME"] = hermes_home
 
     print(f"\nUsing profile: {hermes_home}")
     print(f"Account directory: {dc_accounts_path}")
@@ -420,8 +421,14 @@ if __name__ == "__main__":
     # Get RPC server path
     rpc_server = os.getenv("DELTACHAT_RPC_SERVER", "deltachat-rpc-server")
 
-    # Initialize transport and RPC
-    transport = IOTransport(accounts_dir=dc_accounts_path, rpc_server=rpc_server)
+    # Pass DC_ACCOUNTS_PATH only to the RPC server subprocess; do not mutate
+    # the global process environment.
+    transport_env = {
+        **os.environ,
+        "DC_ACCOUNTS_PATH": dc_accounts_path,
+        "HERMES_HOME": hermes_home,
+    }
+    transport = IOTransport(accounts_dir=dc_accounts_path, rpc_server=rpc_server, env=transport_env)
     transport.start()
     rpc = deltachat2.Rpc(transport)
 
@@ -433,12 +440,13 @@ if __name__ == "__main__":
 
     setup = DeltaChatAccountSetup(rpc)
     if args.non_interactive:
+        email_password = os.getenv("DELTACHAT_EMAIL_PASSWORD")
         account_id = setup.non_interactive_setup(
             profile_name=profile_name,
             name=args.name,
             relay=args.relay,
             email=args.email,
-            password=args.password,
+            password=email_password,
         )
     else:
         account_id = setup.interactive_setup(profile_name)

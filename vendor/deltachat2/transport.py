@@ -100,6 +100,14 @@ class IOTransport:
         self.reader_thread.join()
         self.request_queue.put(None)
         self.writer_thread.join()
+        # Ensure the RPC server process actually exits; some versions ignore EOF.
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
 
     def __enter__(self):
         self.start()

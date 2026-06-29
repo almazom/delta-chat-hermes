@@ -30,4 +30,3 @@ def test_argparser_defaults():
     assert args.name is None
     assert args.profile is None
     assert args.email is None
-    assert args.password is None

@@ -282,7 +282,7 @@ class TestOutgoingCall:
 
     def test_consume_drop_response_is_one_shot(self):
         mgr = self._manager()
-        mgr._drop_next_response.add("12")
+        mgr._drop_next_response["12"] = 1
         assert mgr.consume_drop_response("12") is True  # call-ended note's reply → drop
         assert mgr.consume_drop_response("12") is False  # subsequent replies go through
         assert mgr.consume_drop_response("99") is False

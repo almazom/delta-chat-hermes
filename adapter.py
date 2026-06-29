@@ -193,19 +193,27 @@ class _AsyncRpc:
     ThreadPoolExecutor, keeping the event loop free while capping thread growth.
     """
 
-    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="dc-rpc-")
-
-    def __init__(self, rpc) -> None:
+    def __init__(self, rpc, max_workers: int = 8) -> None:
         object.__setattr__(self, "_rpc", rpc)
+        object.__setattr__(
+            self,
+            "_executor",
+            concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="dc-rpc-"),
+        )
 
     def __getattr__(self, name: str):
         method = getattr(object.__getattribute__(self, "_rpc"), name)
+        executor = object.__getattribute__(self, "_executor")
 
         async def _async_call(*args):
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(self._executor, method, *args)
+            return await loop.run_in_executor(executor, method, *args)
 
         return _async_call
+
+    def shutdown(self, wait: bool = True) -> None:
+        executor = object.__getattribute__(self, "_executor")
+        executor.shutdown(wait=wait)
 
 
 @dataclass
@@ -269,7 +277,12 @@ class DeltaChatRpcClient:
             except Exception as e:
                 logger.debug(f"Error closing transport: {e}")
             self.transport = None
-        self.rpc = None
+        if self.rpc:
+            try:
+                self.rpc.shutdown(wait=True)
+            except Exception as e:
+                logger.debug(f"Error shutting down RPC executor: {e}")
+            self.rpc = None
 
     def is_alive(self) -> bool:
         return self.transport is not None and self.rpc is not None
@@ -944,6 +957,9 @@ body {{
                     envelope = await self.rpc.get_next_event()
                     if envelope.get("context_id") == self.account_id:
                         await self._handle_dc_event(envelope.get("event", {}))
+                else:
+                    # Wait until an account is selected before polling events.
+                    await asyncio.sleep(0.5)
                 consecutive_errors = 0
             except asyncio.CancelledError:
                 break

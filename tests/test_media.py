@@ -20,9 +20,11 @@ class TestResolveBlobPath:
     def test_returns_absolute_path_when_file_exists(self, tmp_path):
         from media import resolve_blob_path
 
-        f = tmp_path / "existing.txt"
+        blobs = tmp_path / "blobs"
+        blobs.mkdir()
+        f = blobs / "existing.txt"
         f.write_text("hi")
-        assert resolve_blob_path(str(f), "/other") == str(f)
+        assert resolve_blob_path(str(f), str(tmp_path)) == str(f)
 
     def test_resolves_in_blobs_dir(self, dc_config_dir):
         from media import resolve_blob_path
@@ -40,6 +42,15 @@ class TestResolveBlobPath:
         from media import resolve_blob_path
 
         assert resolve_blob_path("", dc_config_dir) is None
+
+    def test_rejects_absolute_path_outside_blobs(self, tmp_path):
+        from media import resolve_blob_path
+
+        outside = tmp_path / "outside.txt"
+        outside.write_text("secret")
+        blobs = tmp_path / "blobs"
+        blobs.mkdir()
+        assert resolve_blob_path(str(outside), str(tmp_path)) is None
 
 
 class TestContainerWorkspaceToHost:
