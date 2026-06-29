@@ -5,12 +5,17 @@ import setup
 
 def test_argparser_non_interactive():
     parser = setup._build_argparser()
-    args = parser.parse_args([
-        "--non-interactive",
-        "--relay", "nine.testrun.org",
-        "--name", "Bot",
-        "--profile", "work",
-    ])
+    args = parser.parse_args(
+        [
+            "--non-interactive",
+            "--relay",
+            "nine.testrun.org",
+            "--name",
+            "Bot",
+            "--profile",
+            "work",
+        ]
+    )
     assert args.non_interactive is True
     assert args.relay == "nine.testrun.org"
     assert args.name == "Bot"

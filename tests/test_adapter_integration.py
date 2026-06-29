@@ -94,18 +94,14 @@ class TestVersionCheckIntegration:
     @pytest.mark.asyncio
     async def test_version_compatible(self, mock_rpc):
         """Test version check with compatible version."""
-        mock_rpc.get_system_info = AsyncMock(
-            return_value={"deltachat_core_version": MIN_DC_VERSION}
-        )
+        mock_rpc.get_system_info = AsyncMock(return_value={"deltachat_core_version": MIN_DC_VERSION})
         result = await _check_dc_version(mock_rpc)
         assert result is True
 
     @pytest.mark.asyncio
     async def test_version_too_old(self, mock_rpc, caplog):
         """Test version check with too old version."""
-        mock_rpc.get_system_info = AsyncMock(
-            return_value={"deltachat_core_version": "1.0.0"}
-        )
+        mock_rpc.get_system_info = AsyncMock(return_value={"deltachat_core_version": "1.0.0"})
         with caplog.at_level("ERROR"):
             result = await _check_dc_version(mock_rpc)
         assert result is False
@@ -114,9 +110,7 @@ class TestVersionCheckIntegration:
     @pytest.mark.asyncio
     async def test_version_newer_warns(self, mock_rpc, caplog):
         """Test version check with newer version warns but allows."""
-        mock_rpc.get_system_info = AsyncMock(
-            return_value={"deltachat_core_version": "3.0.0"}
-        )
+        mock_rpc.get_system_info = AsyncMock(return_value={"deltachat_core_version": "3.0.0"})
         with caplog.at_level("WARNING"):
             result = await _check_dc_version(mock_rpc)
         assert result is True
@@ -198,9 +192,7 @@ class TestGetChatInfo:
         adapter.rpc = mock_rpc
         adapter.account_id = 1
 
-        mock_rpc.get_basic_chat_info = AsyncMock(
-            return_value={"chat_id": 789, "name": "Test Chat", "is_group": False}
-        )
+        mock_rpc.get_basic_chat_info = AsyncMock(return_value={"chat_id": 789, "name": "Test Chat", "is_group": False})
 
         result = await adapter.get_chat_info("789")
 
@@ -214,9 +206,7 @@ class TestGetChatInfo:
         adapter.rpc = mock_rpc
         adapter.account_id = 1
 
-        mock_rpc.get_basic_chat_info = AsyncMock(
-            return_value={"chat_id": 789, "name": "Group Chat", "is_group": True}
-        )
+        mock_rpc.get_basic_chat_info = AsyncMock(return_value={"chat_id": 789, "name": "Group Chat", "is_group": True})
 
         result = await adapter.get_chat_info("789")
 
@@ -257,12 +247,8 @@ class TestEventHandling:
                 "view_type": "Text",
             }
         )
-        mock_rpc.get_basic_chat_info = AsyncMock(
-            return_value={"chat_id": 789, "name": "Test Chat", "is_group": False}
-        )
-        mock_rpc.get_contact = AsyncMock(
-            return_value={"contact_id": 456, "name": "Test User"}
-        )
+        mock_rpc.get_basic_chat_info = AsyncMock(return_value={"chat_id": 789, "name": "Test Chat", "is_group": False})
+        mock_rpc.get_contact = AsyncMock(return_value={"contact_id": 456, "name": "Test User"})
         mock_rpc.markseen_msgs = AsyncMock()
 
         adapter._running = True

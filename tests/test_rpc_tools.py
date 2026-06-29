@@ -50,6 +50,7 @@ def fake_ctx():
 async def test_register_rpc_tools_default_set(fake_ctx, fake_adapter):
     """Default registration includes spec and safe-call tools."""
     import rpc_tools
+
     rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
 
     assert "dc_rpc_spec" in fake_ctx.tools
@@ -65,6 +66,7 @@ async def test_register_rpc_tools_default_set(fake_ctx, fake_adapter):
 async def test_dc_safe_rpc_call_blocks_mutating_method(fake_ctx, fake_adapter):
     """Methods not in the read-only allowlist are rejected."""
     import rpc_tools
+
     rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
     handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
 
@@ -78,6 +80,7 @@ async def test_dc_safe_rpc_call_blocks_mutating_method(fake_ctx, fake_adapter):
 async def test_dc_safe_rpc_call_blocks_destructive_method(fake_ctx, fake_adapter):
     """Destructive methods are rejected even if they accept chatId."""
     import rpc_tools
+
     rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
     handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
 
@@ -91,6 +94,7 @@ async def test_dc_safe_rpc_call_blocks_destructive_method(fake_ctx, fake_adapter
 async def test_dc_safe_rpc_call_unknown_token(fake_ctx, fake_adapter):
     """An unknown chat_token returns a clear error."""
     import rpc_tools
+
     rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
     handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
 
@@ -106,6 +110,7 @@ async def test_dc_safe_rpc_call_unknown_token(fake_ctx, fake_adapter):
 async def test_dc_safe_rpc_call_injects_account_and_chat(fake_ctx, fake_adapter, monkeypatch):
     """Allowed method receives account_id and resolved chat_id automatically."""
     import rpc_tools
+
     rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
     handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
 
@@ -113,7 +118,10 @@ async def test_dc_safe_rpc_call_injects_account_and_chat(fake_ctx, fake_adapter,
     fake_adapter.rpc.get_basic_chat_info = AsyncMock(return_value={"id": 42, "name": "Test"})
     fake_adapter.state.spec_cache = {
         "methods": [
-            {"name": "get_basic_chat_info", "params": [{"name": "accountId"}, {"name": "chatId"}]},
+            {
+                "name": "get_basic_chat_info",
+                "params": [{"name": "accountId"}, {"name": "chatId"}],
+            },
         ]
     }
 
@@ -127,13 +135,17 @@ async def test_dc_safe_rpc_call_injects_account_and_chat(fake_ctx, fake_adapter,
 async def test_dc_chat_rpc_spec_only_lists_allowed_methods(fake_ctx, fake_adapter):
     """dc_chat_rpc_spec returns only SAFE_CHAT_METHODS with a chatId param."""
     import rpc_tools
+
     rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
     handler = fake_ctx.tools["dc_chat_rpc_spec"]["handler"]
 
     # Minimal fake spec containing one allowed and one disallowed chat-scoped method.
     fake_spec = {
         "methods": [
-            {"name": "get_basic_chat_info", "params": [{"name": "accountId"}, {"name": "chatId"}]},
+            {
+                "name": "get_basic_chat_info",
+                "params": [{"name": "accountId"}, {"name": "chatId"}],
+            },
             {"name": "send_msg", "params": [{"name": "accountId"}, {"name": "chatId"}]},
         ]
     }

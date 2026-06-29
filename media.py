@@ -30,9 +30,11 @@ def copy_to_hermes_cache(src: str, kind: str) -> str:
         data = open(src, "rb").read()
         if kind == "audio":
             from gateway.platforms.base import cache_audio_from_bytes
+
             dest = cache_audio_from_bytes(data, ext=ext or ".ogg")
         elif kind == "image":
             from gateway.platforms.base import cache_image_from_bytes
+
             dest = cache_image_from_bytes(data, ext=ext or ".jpg")
         else:
             return src
@@ -52,12 +54,14 @@ def container_workspace_to_host(container_path: str) -> Optional[str]:
     p = str(container_path)
     if not p.startswith("/workspace/"):
         return None
-    rel = p[len("/workspace/"):]
+    rel = p[len("/workspace/") :]
     try:
         from tools.environments.base import get_sandbox_dir
+
         sandbox_workspace = get_sandbox_dir() / "docker" / "default" / "workspace"
     except ImportError:
         from gateway.config import get_hermes_home
+
         sandbox_workspace = Path(get_hermes_home()) / "sandboxes" / "docker" / "default" / "workspace"
 
     sandbox = sandbox_workspace.resolve()
@@ -106,7 +110,7 @@ def extract_media(content: str, base_extract) -> Tuple[List[Tuple[str, bool]], s
 def extract_local_files(content: str, base_extract) -> Tuple[List[str], str]:
     """Extend base extract_local_files to also pick up bare /workspace/*.xdc paths."""
     files, remaining = base_extract(content)
-    xdc_re = re.compile(r'(?<![/:\w.])(/workspace/[\w./\-]+\.xdc)\b', re.IGNORECASE)
+    xdc_re = re.compile(r"(?<![/:\w.])(/workspace/[\w./\-]+\.xdc)\b", re.IGNORECASE)
     for match in xdc_re.finditer(content):
         path = match.group(1)
         if path not in files:

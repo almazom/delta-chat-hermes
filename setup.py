@@ -3,7 +3,9 @@
 Provides interactive account creation with relay server discovery.
 """
 
+import argparse
 import re
+import time
 import urllib.request
 from typing import List, Optional
 
@@ -112,7 +114,7 @@ class DeltaChatAccountSetup:
             self.rpc.set_config(account_id, "displayname", name)
             print(f"Account created! ID: {account_id}")
         else:
-            account_id = accounts[0]['id']
+            account_id = accounts[0]["id"]
             print(f"\nUsing existing account: {account_id}")
 
         # Check if transport is configured
@@ -135,7 +137,7 @@ class DeltaChatAccountSetup:
                     # Strip https:// for display
                     display_servers = [s.replace("https://", "") for s in servers]
 
-                    print(f"\nSelect relay server:")
+                    print("\nSelect relay server:")
                     print("-" * 40)
                     print(f"  1. {display_servers[0]} (default)")
                     for i, server in enumerate(display_servers[1:], 2):
@@ -152,7 +154,7 @@ class DeltaChatAccountSetup:
                             if 0 <= idx < len(servers):
                                 relay = servers[idx]
                             elif idx == len(servers):
-                                relay = input(f"Enter relay server: ").strip()
+                                relay = input("Enter relay server: ").strip()
                                 # Add https:// if user didn't include it
                                 if not relay.startswith("https://"):
                                     relay = f"https://{relay}"
@@ -182,7 +184,7 @@ class DeltaChatAccountSetup:
                     print("Invalid choice, please try again.")
 
         # Offer to change display name
-        current_name = self.rpc.get_account_info(account_id).get('name', 'Unnamed')
+        current_name = self.rpc.get_account_info(account_id).get("name", "Unnamed")
         change_name = input(f"\nCurrent display name: '{current_name}'. Change? [y/N]: ").strip().lower()
         if change_name == "y":
             new_name = input(f"New display name [{current_name}]: ").strip()
@@ -194,9 +196,6 @@ class DeltaChatAccountSetup:
                     print(f"Failed to change name: {e}")
 
         return account_id
-
-
-
 
     def non_interactive_setup(
         self,
@@ -261,6 +260,7 @@ def setup_account(rpc, profile_name: str = "default") -> Optional[str]:
 def get_profiles():
     """Get list of Hermes profile directories."""
     import os
+
     default_profile = os.path.expanduser("~/.hermes")
     profiles_dir = os.path.join(os.path.expanduser("~/.hermes"), "profiles")
     profiles = []
@@ -284,6 +284,7 @@ def select_profile():
         Tuple of (profile_name, profile_path)
     """
     import os
+
     profiles = get_profiles()
 
     if not profiles:
@@ -323,10 +324,7 @@ def get_account_address(rpc, account_id: int) -> Optional[str]:
     try:
         # Try to get SecureJoin QR code content (which is the link)
         try:
-            qr_content = rpc.get_chat_securejoin_qr_code(
-                account_id,
-                None  # chat_id - None for account-level QR
-            )
+            qr_content = rpc.get_chat_securejoin_qr_code(account_id, None)  # chat_id - None for account-level QR
             if qr_content:
                 return qr_content
         except Exception:
@@ -351,7 +349,6 @@ def get_account_address(rpc, account_id: int) -> Optional[str]:
 
 def _wait_for_rpc(rpc, timeout: float = 10.0) -> bool:
     """Poll RPC server readiness with a short backoff."""
-    import time
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -363,7 +360,6 @@ def _wait_for_rpc(rpc, timeout: float = 10.0) -> bool:
 
 
 def _build_argparser():
-    import argparse
     parser = argparse.ArgumentParser(description="Delta Chat account setup for Hermes")
     parser.add_argument("--non-interactive", action="store_true", help="Run without prompts")
     parser.add_argument("--relay", default=None, help="Public relay domain, e.g. nine.testrun.org")
@@ -377,13 +373,12 @@ def _build_argparser():
 if __name__ == "__main__":
     import sys
     import os
-    import time
-    import argparse
 
     args = _build_argparser().parse_args()
 
     # Try to import deltachat2 from vendor or system
     import sys as _sys
+
     plugin_dir = os.path.dirname(os.path.abspath(__file__))
     vendor_dir = os.path.join(plugin_dir, "vendor")
     if os.path.exists(vendor_dir) and vendor_dir not in _sys.path:
@@ -398,6 +393,7 @@ if __name__ == "__main__":
 
     # Enable debug logging for RPC if requested
     import logging
+
     if os.getenv("DELTACHAT_DEBUG"):
         logging.getLogger("deltachat2").setLevel(logging.DEBUG)
         logging.getLogger("deltachat2.IOTransport").setLevel(logging.DEBUG)
@@ -452,6 +448,6 @@ if __name__ == "__main__":
         addr = get_account_address(rpc, account_id)
         if addr:
             print(f"\nSecureJoin link: {addr}")
-            print(f"Share this link to chat with the bot via Delta Chat")
+            print("Share this link to chat with the bot via Delta Chat")
 
     transport.close()

@@ -18,7 +18,8 @@ trickle behavior or the NAT/TURN path, so a PASS here does not guarantee the
 phone works — final confirmation still needs a live call. Treat as a fast
 diagnostic + regression guard, not a workaround oracle.
 
-Run: nix develop --command bash -c "cd tests && python3 -m pytest test_call_webrtc_loopback.py -q -s"
+Run: nix develop --command bash -c \
+    "cd tests && python3 -m pytest test_call_webrtc_loopback.py -q -s"
 """
 
 import asyncio
@@ -32,7 +33,10 @@ import pytest
 pytestmark = pytest.mark.slow
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vendor"))
+sys.path.insert(
+    0,
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vendor"),
+)
 
 # These tests require the optional aiortc/av dependencies from the nix dev shell.
 pytest.importorskip("av")
@@ -81,8 +85,7 @@ async def _wait_connected(pcs, timeout=15.0):
 
 def _make_answerer(bundle: bool):
     """A mock 'mobile' answerer: audio + the two negotiated data channels."""
-    config = (RTCConfiguration(bundlePolicy=RTCBundlePolicy.MAX_BUNDLE)
-              if bundle else RTCConfiguration())
+    config = RTCConfiguration(bundlePolicy=RTCBundlePolicy.MAX_BUNDLE) if bundle else RTCConfiguration()
     pc = RTCPeerConnection(config)
     pc.createDataChannel("iceTrickling", negotiated=True, id=1)
     pc.createDataChannel("mutedState", negotiated=True, id=3)
@@ -92,8 +95,7 @@ def _make_answerer(bundle: bool):
 
 def _make_offerer(bundle: bool, data_channels: bool):
     """A configurable offerer to A/B workarounds (no dependency on reverted code)."""
-    config = (RTCConfiguration(bundlePolicy=RTCBundlePolicy.MAX_BUNDLE)
-              if bundle else RTCConfiguration())
+    config = RTCConfiguration(bundlePolicy=RTCBundlePolicy.MAX_BUNDLE) if bundle else RTCConfiguration()
     pc = RTCPeerConnection(config)
     if data_channels:
         pc.createDataChannel("iceTrickling", negotiated=True, id=1)
@@ -122,6 +124,7 @@ async def _run_real_offerer_vs_answerer(answerer_bundle: bool):
     _new_peer_connection(with_data_channels=False) + HermesAudioTrack) against
     an aiortc answerer. Ties the test to production code. Returns (ok, states)."""
     from unittest.mock import MagicMock, AsyncMock
+
     adapter = MagicMock()
     adapter.rpc.ice_servers = AsyncMock(return_value="[]")  # loopback: no TURN needed
     mgr = ch.CallManager(adapter=adapter)

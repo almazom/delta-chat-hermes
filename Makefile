@@ -1,5 +1,12 @@
 .PHONY: all test lint format check clean
 
+# Project source files (excluding vendored code)
+SRC := adapter.py call_handler.py chat_tokens.py media.py rpc_tools.py setup.py __init__.py
+TEST := tests/
+BLACK := black
+BLACK_OPTS := --line-length 120
+FLAKE8 := flake8
+
 # Default target
 all: test lint
 
@@ -11,17 +18,17 @@ test:
 # Format with black
 format:
 	@echo "Formatting code with black..."
-	@python3 -m black adapter.py setup.py __init__.py tests/ docs/ skills/
+	@$(BLACK) $(BLACK_OPTS) $(SRC) $(TEST) docs/ skills/
 
 # Lint with flake8
 lint:
 	@echo "Running flake8..."
-	@python3 -m flake8 adapter.py setup.py __init__.py tests/ --max-line-length=100 --extend-ignore=E203,W503,F401
+	@$(FLAKE8) $(SRC) $(TEST) --max-line-length=120 --extend-ignore=E203,W503,F401,E402
 
 # Check formatting (black --check)
-check: format
+check:
 	@echo "Checking code formatting..."
-	@python3 -m black --check adapter.py setup.py __init__.py tests/ docs/ skills/
+	@$(BLACK) --check $(BLACK_OPTS) $(SRC) $(TEST) docs/ skills/
 
 # Clean
 clean:

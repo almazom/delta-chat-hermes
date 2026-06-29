@@ -13,29 +13,31 @@ logger = logging.getLogger("hermes_plugins.deltachat.tools")
 
 # Explicit allowlist of read-only, chat-scoped RPC methods for dc_safe_rpc_call.
 # Defense-in-depth: DESTRUCTIVE_METHODS and delete_/remove_ prefixes are still blocked.
-SAFE_CHAT_METHODS = frozenset({
-    "get_basic_chat_info",
-    "get_chat_contacts",
-    "get_chat_description",
-    "get_chat_encryption_info",
-    "get_chat_ephemeral_timer",
-    "get_chat_media",
-    "get_chat_securejoin_qr_code",
-    "get_chat_securejoin_qr_code_svg",
-    "get_draft",
-    "get_first_unread_message_of_chat",
-    "get_fresh_msg_cnt",
-    "get_full_chat_by_id",
-    "get_locations",
-    "get_message_ids",
-    "get_message_list_items",
-    "get_past_chat_contacts",
-    "get_similar_chat_ids",
-    "is_chat_muted",
-    "is_sending_locations_to_chat",
-    "can_send",
-    "search_messages",
-})
+SAFE_CHAT_METHODS = frozenset(
+    {
+        "get_basic_chat_info",
+        "get_chat_contacts",
+        "get_chat_description",
+        "get_chat_encryption_info",
+        "get_chat_ephemeral_timer",
+        "get_chat_media",
+        "get_chat_securejoin_qr_code",
+        "get_chat_securejoin_qr_code_svg",
+        "get_draft",
+        "get_first_unread_message_of_chat",
+        "get_fresh_msg_cnt",
+        "get_full_chat_by_id",
+        "get_locations",
+        "get_message_ids",
+        "get_message_list_items",
+        "get_past_chat_contacts",
+        "get_similar_chat_ids",
+        "is_chat_muted",
+        "is_sending_locations_to_chat",
+        "can_send",
+        "search_messages",
+    }
+)
 
 
 async def _fetch_spec(rpc_server_path: str, spec_cache: Optional[dict]) -> dict:
@@ -43,7 +45,8 @@ async def _fetch_spec(rpc_server_path: str, spec_cache: Optional[dict]) -> dict:
     if spec_cache is not None:
         return spec_cache
     proc = await asyncio.create_subprocess_exec(
-        rpc_server_path, "--openrpc",
+        rpc_server_path,
+        "--openrpc",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -100,9 +103,9 @@ def register_rpc_tools(ctx, adapter) -> None:
         except Exception as e:
             return f"Error: {e}"
         safe_methods = [
-            m for m in spec.get("methods", [])
-            if m["name"] in SAFE_CHAT_METHODS
-            and any(p["name"] == "chatId" for p in m.get("params", []))
+            m
+            for m in spec.get("methods", [])
+            if m["name"] in SAFE_CHAT_METHODS and any(p["name"] == "chatId" for p in m.get("params", []))
         ]
         return json.dumps({**spec, "methods": safe_methods}, indent=2)
 
@@ -122,7 +125,9 @@ def register_rpc_tools(ctx, adapter) -> None:
             or method.startswith("delete_")
             or method.startswith("remove_")
         ):
-            return json.dumps({"error": f"'{method}' is not allowed in safe mode — use dc_rpc_spec for unrestricted access"})
+            return json.dumps(
+                {"error": f"'{method}' is not allowed in safe mode — use dc_rpc_spec for unrestricted access"}
+            )
 
         real_chat_id = await resolve_chat_token(store, adapter.rpc, adapter.account_id, chat_token)
         if real_chat_id is None:
@@ -135,7 +140,9 @@ def register_rpc_tools(ctx, adapter) -> None:
 
         method_entry = next((m for m in spec.get("methods", []) if m["name"] == method), None)
         if method_entry is None:
-            return json.dumps({"error": f"Unknown method '{method}' — use dc_chat_rpc_spec to browse available methods"})
+            return json.dumps(
+                {"error": f"Unknown method '{method}' — use dc_chat_rpc_spec to browse available methods"}
+            )
 
         param_names = [p["name"] for p in method_entry.get("params", [])]
         if "chatId" not in param_names:
@@ -183,9 +190,13 @@ def register_rpc_tools(ctx, adapter) -> None:
 
         try:
             msg_id = await adapter._call_manager.start_call(str(real_chat_id), opening=opening)
-            return json.dumps({"success": True, "msg_id": msg_id,
-                               "message": "Call connected — the opening line is being "
-                                          "spoken and the conversation is live."})
+            return json.dumps(
+                {
+                    "success": True,
+                    "msg_id": msg_id,
+                    "message": "Call connected — the opening line is being " "spoken and the conversation is live.",
+                }
+            )
         except asyncio.TimeoutError:
             return json.dumps({"error": "Call was not answered"})
         except Exception as e:
@@ -368,7 +379,7 @@ def register_rpc_tools(ctx, adapter) -> None:
                         "type": "string",
                         "description": (
                             "The EXACT words to say the instant they pick up "
-                            "(e.g. \"Hi Simon, quick reminder to take your medication.\"). "
+                            '(e.g. "Hi Simon, quick reminder to take your medication."). '
                             "Synthesized while the phone is still ringing and played "
                             "immediately on answer — no startup delay. Write it as natural "
                             "speech, not a topic label."
