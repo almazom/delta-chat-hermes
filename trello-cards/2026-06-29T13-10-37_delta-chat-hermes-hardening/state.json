@@ -2,133 +2,177 @@
   "project": "delta-chat-hermes-hardening",
   "source": "trello-cards/2026-06-29T13-10-37_delta-chat-hermes-hardening/",
   "kanban_path": "trello-cards/2026-06-29T13-10-37_delta-chat-hermes-hardening/kanban.json",
-  "overall_status": "ready",
+  "overall_status": "done",
   "current_card": null,
   "current_stage": null,
-  "progress_percent": 0,
-  "started_at": null,
-  "completed_at": null,
-  "updated_at": "2026-06-29T13:10:37.276874+00:00",
-  "done_count": 0,
+  "progress_percent": 100,
+  "started_at": "2026-06-29T13:50:22.414554+00:00",
+  "completed_at": "2026-06-29T13:50:22.414554+00:00",
+  "updated_at": "2026-06-29T13:50:22.414554+00:00",
+  "done_count": 11,
   "blocked_count": 0,
   "total_cards": 11,
   "total_sp": 24,
   "agile_states": {
-    "backlog": 11,
+    "backlog": 0,
     "in_progress": 0,
     "code_review": 0,
     "code_simplification": 0,
     "auto_commit": 0,
-    "done": 0
+    "done": 11
   },
   "cards": {
     "TC-001": {
-      "status": "backlog",
+      "status": "done",
       "sp": 2,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276879+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-002": {
-      "status": "backlog",
+      "status": "done",
       "sp": 1,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276881+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-003": {
-      "status": "backlog",
+      "status": "done",
       "sp": 3,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276883+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-004": {
-      "status": "backlog",
+      "status": "done",
       "sp": 3,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276884+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-005": {
-      "status": "backlog",
+      "status": "done",
       "sp": 2,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276885+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-006": {
-      "status": "backlog",
+      "status": "done",
       "sp": 1,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276886+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-007": {
-      "status": "backlog",
+      "status": "done",
       "sp": 3,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276887+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-008": {
-      "status": "backlog",
+      "status": "done",
       "sp": 3,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276889+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-009": {
-      "status": "backlog",
+      "status": "done",
       "sp": 2,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276890+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-010": {
-      "status": "backlog",
+      "status": "done",
       "sp": 2,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276891+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     },
     "TC-011": {
-      "status": "backlog",
+      "status": "done",
       "sp": 2,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T13:10:37.276891+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T13:50:22.414554+00:00"
         }
       ]
     }
