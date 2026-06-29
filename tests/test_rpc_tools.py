@@ -48,12 +48,27 @@ def fake_ctx():
     return FakeCtx()
 
 
-@pytest.mark.asyncio
-async def test_register_rpc_tools_default_set(fake_ctx, fake_adapter):
-    """Default registration includes spec and safe-call tools."""
+@pytest.fixture
+def registry():
+    """Token-to-adapter mapping used by multi-profile dispatch tests."""
+    return {}
+
+
+def _register(fake_ctx, fake_adapter, registry):
+    """Register tools using the new dispatch signature."""
     import rpc_tools
 
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    rpc_tools.register_rpc_tools(
+        fake_ctx,
+        resolve_adapter=lambda token: registry.get(token),
+        get_default_adapter=lambda: fake_adapter,
+    )
+
+
+@pytest.mark.asyncio
+async def test_register_rpc_tools_default_set(fake_ctx, fake_adapter, registry):
+    """Default registration includes spec and safe-call tools."""
+    _register(fake_ctx, fake_adapter, registry)
 
     assert "dc_rpc_spec" in fake_ctx.tools
     assert "dc_chat_rpc_spec" in fake_ctx.tools
@@ -65,11 +80,10 @@ async def test_register_rpc_tools_default_set(fake_ctx, fake_adapter):
 
 
 @pytest.mark.asyncio
-async def test_dc_safe_rpc_call_blocks_mutating_method(fake_ctx, fake_adapter):
+async def test_dc_safe_rpc_call_blocks_mutating_method(fake_ctx, fake_adapter, registry):
     """Methods not in the read-only allowlist are rejected."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    registry["token123"] = fake_adapter
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
 
     result = await handler({"method": "send_msg", "chat_token": "token123", "params": []})
@@ -79,11 +93,10 @@ async def test_dc_safe_rpc_call_blocks_mutating_method(fake_ctx, fake_adapter):
 
 
 @pytest.mark.asyncio
-async def test_dc_safe_rpc_call_blocks_destructive_method(fake_ctx, fake_adapter):
+async def test_dc_safe_rpc_call_blocks_destructive_method(fake_ctx, fake_adapter, registry):
     """Destructive methods are rejected even if they accept chatId."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    registry["token123"] = fake_adapter
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
 
     result = await handler({"method": "delete_chat", "chat_token": "token123", "params": []})
@@ -93,11 +106,9 @@ async def test_dc_safe_rpc_call_blocks_destructive_method(fake_ctx, fake_adapter
 
 
 @pytest.mark.asyncio
-async def test_dc_safe_rpc_call_unknown_token(fake_ctx, fake_adapter):
+async def test_dc_safe_rpc_call_unknown_token(fake_ctx, fake_adapter, registry):
     """An unknown chat_token returns a clear error."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
 
     fake_adapter.rpc.get_config.return_value = None
@@ -109,11 +120,10 @@ async def test_dc_safe_rpc_call_unknown_token(fake_ctx, fake_adapter):
 
 
 @pytest.mark.asyncio
-async def test_dc_safe_rpc_call_injects_account_and_chat(fake_ctx, fake_adapter, monkeypatch):
+async def test_dc_safe_rpc_call_injects_account_and_chat(fake_ctx, fake_adapter, registry, monkeypatch):
     """Allowed method receives account_id and resolved chat_id automatically."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    registry["token123"] = fake_adapter
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
 
     fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 42
@@ -134,11 +144,9 @@ async def test_dc_safe_rpc_call_injects_account_and_chat(fake_ctx, fake_adapter,
 
 
 @pytest.mark.asyncio
-async def test_dc_chat_rpc_spec_only_lists_allowed_methods(fake_ctx, fake_adapter):
+async def test_dc_chat_rpc_spec_only_lists_allowed_methods(fake_ctx, fake_adapter, registry):
     """dc_chat_rpc_spec returns only SAFE_CHAT_METHODS with a chatId param."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_chat_rpc_spec"]["handler"]
 
     # Minimal fake spec containing one allowed and one disallowed chat-scoped method.
@@ -161,11 +169,9 @@ async def test_dc_chat_rpc_spec_only_lists_allowed_methods(fake_ctx, fake_adapte
 
 
 @pytest.mark.asyncio
-async def test_dc_end_call_unknown_token(fake_ctx, fake_adapter):
+async def test_dc_end_call_unknown_token(fake_ctx, fake_adapter, registry):
     """Ending a call with an unknown token fails cleanly."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_end_call"]["handler"]
 
     fake_adapter._call_manager = MagicMock()
@@ -176,11 +182,10 @@ async def test_dc_end_call_unknown_token(fake_ctx, fake_adapter):
 
 
 @pytest.mark.asyncio
-async def test_dc_end_call_rejects_inactive_chat(fake_ctx, fake_adapter):
+async def test_dc_end_call_rejects_inactive_chat(fake_ctx, fake_adapter, registry):
     """Ending a call for a chat with no active call returns a clear error."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    registry["token123"] = fake_adapter
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_end_call"]["handler"]
 
     fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 42
@@ -194,11 +199,10 @@ async def test_dc_end_call_rejects_inactive_chat(fake_ctx, fake_adapter):
 
 
 @pytest.mark.asyncio
-async def test_dc_end_call_success(fake_ctx, fake_adapter):
+async def test_dc_end_call_success(fake_ctx, fake_adapter, registry):
     """Ending a call for an active chat requests hangup."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    registry["token123"] = fake_adapter
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_end_call"]["handler"]
 
     fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 42
@@ -213,11 +217,10 @@ async def test_dc_end_call_success(fake_ctx, fake_adapter):
 
 
 @pytest.mark.asyncio
-async def test_dc_start_call_requires_opening(fake_ctx, fake_adapter):
+async def test_dc_start_call_requires_opening(fake_ctx, fake_adapter, registry):
     """Starting a call without an opening line is rejected."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    registry["token123"] = fake_adapter
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_start_call"]["handler"]
 
     fake_adapter._call_manager = MagicMock()
@@ -228,11 +231,10 @@ async def test_dc_start_call_requires_opening(fake_ctx, fake_adapter):
 
 
 @pytest.mark.asyncio
-async def test_dc_start_call_success(fake_ctx, fake_adapter):
+async def test_dc_start_call_success(fake_ctx, fake_adapter, registry):
     """Starting a call resolves the token and delegates to the call manager."""
-    import rpc_tools
-
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    registry["token123"] = fake_adapter
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_start_call"]["handler"]
 
     fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 7
@@ -247,12 +249,12 @@ async def test_dc_start_call_success(fake_ctx, fake_adapter):
 
 
 @pytest.mark.asyncio
-async def test_dc_start_call_timeout(fake_ctx, fake_adapter):
+async def test_dc_start_call_timeout(fake_ctx, fake_adapter, registry):
     """An unanswered call surfaces a timeout error."""
     import asyncio
-    import rpc_tools
 
-    rpc_tools.register_rpc_tools(fake_ctx, fake_adapter)
+    registry["token123"] = fake_adapter
+    _register(fake_ctx, fake_adapter, registry)
     handler = fake_ctx.tools["dc_start_call"]["handler"]
 
     fake_adapter.state.chat_tokens.chat_token_to_id["token123"] = 7
@@ -263,3 +265,34 @@ async def test_dc_start_call_timeout(fake_ctx, fake_adapter):
     parsed = json.loads(result)
     assert "error" in parsed
     assert "not answered" in parsed["error"]
+
+
+@pytest.mark.asyncio
+async def test_dc_safe_rpc_call_dispatches_by_chat_token(fake_ctx, fake_adapter, registry):
+    """The same global tool routes calls to different adapters based on token."""
+    adapter_a = fake_adapter
+    adapter_b = _fake_adapter()
+    adapter_b.account_id = 2
+    adapter_b.state.chat_tokens.chat_token_to_id["token-b"] = 99
+    adapter_b.rpc.get_basic_chat_info = AsyncMock(return_value={"id": 99, "name": "Other"})
+    adapter_b.state.spec_cache = {
+        "methods": [
+            {
+                "name": "get_basic_chat_info",
+                "params": [{"name": "accountId"}, {"name": "chatId"}],
+            },
+        ]
+    }
+
+    adapter_a.state.chat_tokens.chat_token_to_id["token-a"] = 42
+    adapter_a.rpc.get_basic_chat_info = AsyncMock(return_value={"id": 42, "name": "Test"})
+    adapter_a.state.spec_cache = adapter_b.state.spec_cache
+
+    registry["token-a"] = adapter_a
+    registry["token-b"] = adapter_b
+    _register(fake_ctx, adapter_a, registry)
+    handler = fake_ctx.tools["dc_safe_rpc_call"]["handler"]
+
+    await handler({"method": "get_basic_chat_info", "chat_token": "token-b", "params": []})
+    adapter_b.rpc.get_basic_chat_info.assert_awaited_once_with(2, 99)
+    adapter_a.rpc.get_basic_chat_info.assert_not_awaited()

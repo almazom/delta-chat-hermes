@@ -40,15 +40,47 @@ from media import (
     filter_local_delivery_paths as _filter_local_delivery_paths,
     resolve_blob_path,
 )
-from rpc_tools import register_rpc_tools
 
-# Gateway context stashed at plugin load time; used to register per-adapter RPC tools.
+# Gateway context stashed at plugin load time; used to register RPC tools once.
 _tool_ctx = None
+
+# Multi-profile dispatch state. Tools are registered globally once; handlers resolve
+# the correct adapter from the chat_token so multiple profiles do not collide.
+_tools_registered = False
+_token_to_adapter: Dict[str, "DeltaChatAdapter"] = {}
+_default_adapter: Optional["DeltaChatAdapter"] = None
 
 
 def _store_tool_ctx(ctx) -> None:
     global _tool_ctx
     _tool_ctx = ctx
+
+
+def _register_global_rpc_tools(ctx) -> None:
+    """Register Delta Chat tools once; handlers dispatch by chat_token."""
+    global _tools_registered
+    if _tools_registered:
+        return
+    import rpc_tools
+
+    rpc_tools.register_rpc_tools(
+        ctx,
+        resolve_adapter=lambda token: _token_to_adapter.get(token),
+        get_default_adapter=lambda: _default_adapter,
+    )
+    _tools_registered = True
+
+
+def _register_chat_token(token: str, adapter: "DeltaChatAdapter") -> None:
+    """Map an opaque chat token to the adapter that owns it."""
+    _token_to_adapter[token] = adapter
+
+
+def _unregister_adapter_tokens(adapter: "DeltaChatAdapter") -> None:
+    """Remove all token mappings pointing at *adapter*."""
+    to_remove = [t for t, a in _token_to_adapter.items() if a is adapter]
+    for token in to_remove:
+        _token_to_adapter.pop(token, None)
 
 
 # Must use "hermes_plugins.*" prefix so records appear in gateway.log.
@@ -372,10 +404,14 @@ class DeltaChatAdapter(BasePlatformAdapter):
 
             self._mark_connected()
 
-            # Register RPC tools bound to this adapter instance.
+            # Register RPC tools once globally. Tool handlers dispatch to the correct
+            # adapter at runtime using the chat_token, so multiple Hermes profiles can
+            # load this plugin without overwriting each other's tool closures.
+            global _default_adapter
+            _default_adapter = self
             try:
                 if _tool_ctx is not None:
-                    register_rpc_tools(_tool_ctx, self)
+                    _register_global_rpc_tools(_tool_ctx)
             except Exception as e:
                 logger.warning(f"Could not register RPC tools: {e}")
 
@@ -405,6 +441,7 @@ class DeltaChatAdapter(BasePlatformAdapter):
 
     def _cleanup(self) -> None:
         """Clean up resources."""
+        global _default_adapter
         self._running = False
         if self._event_loop_task:
             self._event_loop_task.cancel()
@@ -414,6 +451,9 @@ class DeltaChatAdapter(BasePlatformAdapter):
             self._rpc_client = None
         self.rpc = None
         self.account_id = None
+        _unregister_adapter_tokens(self)
+        if _default_adapter is self:
+            _default_adapter = None
 
     async def disconnect(self) -> None:
         """Disconnect from Delta Chat."""
@@ -1064,6 +1104,7 @@ body {{
                 text_with_token = text
             else:
                 token = await get_or_create_chat_token(self.state.chat_tokens, self.rpc, self.account_id, int(chat_id))
+                _register_chat_token(token, self)
                 text_with_token = f"{text}\n[dc:chat={token}]"
 
             # Build and handle message event
@@ -1198,6 +1239,7 @@ body {{
         )
 
         token = await get_or_create_chat_token(self.state.chat_tokens, self.rpc, self.account_id, int(chat_id))
+        _register_chat_token(token, self)
 
         from deltachat2.types import MessageViewtype
 
