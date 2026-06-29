@@ -41,8 +41,18 @@ async def get_or_create_chat_token(
 
     if existing:
         token = existing
+        # Ensure the reverse mapping exists in case only the forward key was set.
+        try:
+            reverse = await rpc.get_config(account_id, f"ui.hermes.token_chat.{token}")
+        except Exception:
+            reverse = None
+        if not reverse:
+            try:
+                await rpc.set_config(account_id, f"ui.hermes.token_chat.{token}", str(chat_id))
+            except Exception as e:
+                logger.warning("Could not persist reverse chat token mapping: %s", e)
     else:
-        token = secrets.token_hex(8)
+        token = secrets.token_hex(16)
         try:
             await rpc.set_config(account_id, dc_key, token)
             await rpc.set_config(account_id, f"ui.hermes.token_chat.{token}", str(chat_id))
@@ -68,7 +78,11 @@ async def resolve_chat_token(
         chat_id_str = None
 
     if chat_id_str:
-        chat_id = int(chat_id_str)
+        try:
+            chat_id = int(chat_id_str)
+        except (ValueError, TypeError):
+            logger.warning("Malformed chat_id value in DC config for token %r: %r", token, chat_id_str)
+            return None
         store.chat_token_to_id[token] = chat_id
         store.chat_id_to_token[chat_id] = token
         return chat_id

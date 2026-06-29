@@ -21,6 +21,8 @@ class MockMessageType(Enum):
     TEXT = "text"
     FILE = "file"
     IMAGE = "image"
+    PHOTO = "photo"
+    DOCUMENT = "document"
     AUDIO = "audio"
     VOICE = "voice"
     STICKER = "sticker"
@@ -186,6 +188,26 @@ class MockBasePlatformAdapter:
         """Handle a message event (to be overridden by adapter)."""
         pass
 
+    @staticmethod
+    def extract_media(content: str):
+        """Extract media references from message content."""
+        return [], content
+
+    @staticmethod
+    def extract_local_files(content: str):
+        """Extract local file paths from message content."""
+        return [], content
+
+    @staticmethod
+    def filter_media_delivery_paths(media_files, base_filter):
+        """Filter/remap media files before delivery."""
+        return base_filter(media_files)
+
+    @staticmethod
+    def filter_local_delivery_paths(file_paths, base_filter):
+        """Filter/remap local file paths before delivery."""
+        return base_filter(file_paths)
+
 
 class MockGatewayBase:
     """Mock of gateway.platforms.base module."""
@@ -266,4 +288,7 @@ def mock_rpc():
     rpc.get_message = AsyncMock()
     rpc.get_contact = AsyncMock()
     rpc.markseen_msgs = AsyncMock()
+    # chat_tokens.py persists mappings via get_config/set_config.
+    rpc.get_config = AsyncMock()
+    rpc.set_config = AsyncMock()
     return rpc

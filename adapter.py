@@ -248,6 +248,7 @@ class DeltaChatAdapter(BasePlatformAdapter):
         super().__init__(config, Platform("deltachat-platform"))
         self.state = DeltaChatPluginState(adapter=self)
         self.rpc = None
+        self._rpc_client = None
         self._transport = None
         self.account_id: Optional[int] = None
         self._event_loop_task: Optional[asyncio.Task] = None
@@ -739,7 +740,12 @@ body {{
             msg_id = await self.rpc.send_msg(
                 self.account_id,
                 int(chat_id),
-                MsgData(file=audio_path, text=caption or "", viewtype=MessageViewtype.VOICE),
+                MsgData(
+                    file=audio_path,
+                    text=caption or "",
+                    viewtype=MessageViewtype.VOICE,
+                    quoted_message_id=int(reply_to) if reply_to else None,
+                ),
             )
 
             logger.info(f"Sent voice message {msg_id} to chat {chat_id}, file={audio_path}, size={file_size}")
@@ -829,7 +835,8 @@ body {{
     def _container_workspace_to_host(container_path: str) -> Optional[str]:
         """Map a /workspace/<rel> container path to its host-side sandbox path.
 
-        Returns None when the path is not under /workspace/.
+        Returns None when the path is not under /workspace/ or when the resolved
+        path escapes the sandbox (path traversal attempt).
         """
         from pathlib import Path
 
@@ -843,7 +850,14 @@ body {{
         except ImportError:
             from gateway.config import get_hermes_home
             sandbox_workspace = Path(get_hermes_home()) / "sandboxes" / "docker" / "default" / "workspace"
-        return str(sandbox_workspace / rel)
+
+        sandbox = sandbox_workspace.resolve()
+        target = (sandbox / rel).resolve()
+        # Reject traversal that resolves outside the sandbox workspace.
+        if target != sandbox and not str(target).startswith(str(sandbox) + os.sep):
+            logger.warning("Path traversal rejected for container path: %s", container_path)
+            return None
+        return str(target)
 
     def _copy_container_file_to_cache(self, container_path: str) -> Optional[str]:
         """Copy a /workspace/ container file to the Hermes docs cache.

@@ -44,7 +44,11 @@ def copy_to_hermes_cache(src: str, kind: str) -> str:
 
 
 def container_workspace_to_host(container_path: str) -> Optional[str]:
-    """Map a /workspace/<rel> container path to its host-side sandbox path."""
+    """Map a /workspace/<rel> container path to its host-side sandbox path.
+
+    Returns None when the path is not under /workspace/ or when the resolved
+    path escapes the sandbox (path traversal attempt).
+    """
     p = str(container_path)
     if not p.startswith("/workspace/"):
         return None
@@ -55,7 +59,14 @@ def container_workspace_to_host(container_path: str) -> Optional[str]:
     except ImportError:
         from gateway.config import get_hermes_home
         sandbox_workspace = Path(get_hermes_home()) / "sandboxes" / "docker" / "default" / "workspace"
-    return str(sandbox_workspace / rel)
+
+    sandbox = sandbox_workspace.resolve()
+    target = (sandbox / rel).resolve()
+    # Reject traversal that resolves outside the sandbox workspace.
+    if target != sandbox and not str(target).startswith(str(sandbox) + os.sep):
+        logger.warning("Path traversal rejected for container path: %s", container_path)
+        return None
+    return str(target)
 
 
 def copy_container_file_to_cache(container_path: str) -> Optional[str]:
