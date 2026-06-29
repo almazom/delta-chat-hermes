@@ -5,9 +5,7 @@ Integrates Delta Chat as a messaging platform using deltachat2 (direct JSON-RPC)
 
 import functools
 import html
-import json
 import os
-import secrets
 import sys
 import asyncio
 import logging
@@ -30,6 +28,17 @@ from gateway.platforms.base import (
     MessageType,
 )
 from gateway.config import Platform, PlatformConfig
+
+from chat_tokens import ChatTokenStore, get_or_create_chat_token, resolve_chat_token
+from media import (
+    resolve_blob_path,
+    copy_to_hermes_cache,
+    extract_media as _extract_media,
+    extract_local_files as _extract_local_files,
+    filter_media_delivery_paths as _filter_media_delivery_paths,
+    filter_local_delivery_paths as _filter_local_delivery_paths,
+)
+from rpc_tools import register_rpc_tools
 
 # Gateway context stashed at plugin load time; used to register per-adapter RPC tools.
 _tool_ctx = None
@@ -168,101 +177,8 @@ class DeltaChatPluginState:
     tools and call managers use that instance instead of a global singleton.
     """
     adapter: Optional["DeltaChatAdapter"] = None
-    chat_id_to_token: Dict[int, str] = field(default_factory=dict)
-    chat_token_to_id: Dict[str, int] = field(default_factory=dict)
+    chat_tokens: "ChatTokenStore" = field(default_factory=lambda: ChatTokenStore())
     spec_cache: Optional[dict] = None
-
-
-# Methods that mutate or destroy chat data — blocked from dc_safe_rpc_call.
-# Kept at module level because the set itself is immutable and shared.
-_DESTRUCTIVE_METHODS = frozenset({
-    "delete_chat",
-    "delete_messages",
-    "delete_messages_for_all",
-    "remove_contact_from_chat",
-    "remove_draft",
-    "leave_group",
-})
-
-
-# Backward-compatible module-level references (deprecated).
-# These are kept only so that external callers that import them directly do not
-# break. They are no longer mutated by the adapter after TC-002/TC-003/TC-004.
-_active_adapter = None
-_chat_id_to_token: Dict[int, str] = {}
-_chat_token_to_id: Dict[str, int] = {}
-_spec_cache: Optional[dict] = None
-
-
-async def _get_or_create_chat_token(
-    state: DeltaChatPluginState, rpc, account_id: int, chat_id: int
-) -> str:
-    """Return a stable opaque token for *chat_id* scoped to *state*."""
-    if chat_id in state.chat_id_to_token:
-        return state.chat_id_to_token[chat_id]
-
-    dc_key = f"ui.hermes.chat_token.{chat_id}"
-    try:
-        existing = await rpc.get_config(account_id, dc_key)
-    except Exception:
-        existing = None
-
-    if existing:
-        token = existing
-    else:
-        token = secrets.token_hex(8)
-        try:
-            await rpc.set_config(account_id, dc_key, token)
-            await rpc.set_config(account_id, f"ui.hermes.token_chat.{token}", str(chat_id))
-        except Exception as e:
-            logger.warning(f"Could not persist chat token to DC config: {e}")
-
-    state.chat_id_to_token[chat_id] = token
-    state.chat_token_to_id[token] = chat_id
-    return token
-
-
-async def _resolve_chat_token(
-    state: DeltaChatPluginState, rpc, account_id: int, token: str
-) -> Optional[int]:
-    """Resolve an opaque token back to the real chat_id scoped to *state*."""
-    if token in state.chat_token_to_id:
-        return state.chat_token_to_id[token]
-
-    dc_key = f"ui.hermes.token_chat.{token}"
-    try:
-        chat_id_str = await rpc.get_config(account_id, dc_key)
-    except Exception:
-        chat_id_str = None
-
-    if chat_id_str:
-        chat_id = int(chat_id_str)
-        state.chat_token_to_id[token] = chat_id
-        state.chat_id_to_token[chat_id] = token
-        return chat_id
-
-    return None
-
-
-async def _fetch_spec(state: DeltaChatPluginState) -> dict:
-    """Fetch and cache the OpenRPC spec from deltachat-rpc-server --openrpc."""
-    if state.spec_cache is None:
-        adapter = state.adapter
-        rpc_server = (
-            adapter._get_rpc_server_path()
-            if adapter is not None
-            else os.getenv("DELTACHAT_RPC_SERVER", "deltachat-rpc-server")
-        )
-        proc = await asyncio.create_subprocess_exec(
-            rpc_server, "--openrpc",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"deltachat-rpc-server --openrpc failed: {stderr.decode().strip()}")
-        state.spec_cache = json.loads(stdout.decode())
-    return state.spec_cache
 
 
 class DeltaChatRpcClient:
@@ -1196,8 +1112,8 @@ body {{
             if text.startswith("/"):
                 text_with_token = text
             else:
-                token = await _get_or_create_chat_token(
-                    self.state, self.rpc, self.account_id, int(chat_id)
+                token = await get_or_create_chat_token(
+                    self.state.chat_tokens, self.rpc, self.account_id, int(chat_id)
                 )
                 text_with_token = f"{text}\n[dc:chat={token}]"
 
@@ -1317,8 +1233,8 @@ body {{
             user_name=user_name,
         )
 
-        token = await _get_or_create_chat_token(
-            self.state, self.rpc, self.account_id, int(chat_id)
+        token = await get_or_create_chat_token(
+            self.state.chat_tokens, self.rpc, self.account_id, int(chat_id)
         )
 
         from deltachat2.types import MessageViewtype
@@ -1736,313 +1652,3 @@ def register_platform(ctx):
         logger.warning("Skills directory not found: %s", skills_dir)
 
 
-def register_rpc_tools(ctx, adapter: "DeltaChatAdapter") -> None:
-    """Register Delta Chat RPC tools bound to a specific adapter instance.
-
-    Always registers:
-      - dc_rpc_spec: full OpenRPC spec
-      - dc_chat_rpc_spec: spec filtered to chatId-scoped, non-destructive methods
-      - dc_safe_rpc_call: chat-scoped calls with token-validated chatId injection
-
-    Only registers when DELTACHAT_ENABLE_RAW_RPC is set:
-      - dc_rpc_call: unrestricted access to any RPC method
-    """
-    state = adapter.state
-
-    async def _spec_handler(args: dict = None, **kwargs) -> str:
-        try:
-            return json.dumps(await _fetch_spec(state), indent=2)
-        except Exception as e:
-            return f"Error: {e}"
-
-    async def _call_handler(args: dict, **kwargs) -> str:
-        method = (args or {}).get("method")
-        params = (args or {}).get("params") or []
-        if not method or not isinstance(method, str):
-            return json.dumps({"error": "Missing 'method' (snake_case RPC name)."})
-        if adapter is None or adapter.rpc is None:
-            return json.dumps({"error": "Delta Chat is not connected"})
-        try:
-            result = await getattr(adapter.rpc, method)(*params)
-            return json.dumps(result, default=str)
-        except Exception as e:
-            return json.dumps({"error": str(e)})
-
-    async def _chat_spec_handler(args: dict = None, **kwargs) -> str:
-        """Return only the chatId-scoped, non-destructive methods."""
-        try:
-            spec = await _fetch_spec(state)
-        except Exception as e:
-            return f"Error: {e}"
-        safe_methods = [
-            m for m in spec.get("methods", [])
-            if any(p["name"] == "chatId" for p in m.get("params", []))
-            and m["name"] not in _DESTRUCTIVE_METHODS
-            and not m["name"].startswith("delete_")
-            and not m["name"].startswith("remove_")
-        ]
-        return json.dumps({**spec, "methods": safe_methods}, indent=2)
-
-    async def _safe_call_handler(args: dict, **kwargs) -> Any:
-        method = (args or {}).get("method")
-        chat_token = (args or {}).get("chat_token")
-        params = (args or {}).get("params") or []
-        if not method or not isinstance(method, str):
-            return json.dumps({"error": "Missing 'method' (snake_case RPC name). Use dc_chat_rpc_spec to find one."})
-        if adapter is None or adapter.rpc is None:
-            return {"error": "Delta Chat is not connected"}
-
-        # Resolve token → real chat_id
-        real_chat_id = await _resolve_chat_token(state, adapter.rpc, adapter.account_id, chat_token)
-        if real_chat_id is None:
-            return json.dumps({"error": "Unknown chat_token — use the [dc:chat=...] value from your message"})
-
-        # Block destructive methods
-        if (
-            method in _DESTRUCTIVE_METHODS
-            or method.startswith("delete_")
-            or method.startswith("remove_")
-        ):
-            return json.dumps({"error": f"'{method}' is not allowed in safe mode"})
-
-        # Verify method exists and has a chatId param
-        try:
-            spec = await _fetch_spec(state)
-        except Exception as e:
-            return json.dumps({"error": f"Could not fetch spec: {e}"})
-
-        method_entry = next((m for m in spec.get("methods", []) if m["name"] == method), None)
-        if method_entry is None:
-            return json.dumps({"error": f"Unknown method '{method}' — use dc_chat_rpc_spec to browse available methods"})
-
-        param_names = [p["name"] for p in method_entry.get("params", [])]
-        if "chatId" not in param_names:
-            return json.dumps({"error": f"'{method}' has no chatId parameter — use dc_rpc_call for non-chat methods"})
-
-        # Build positional params: accountId at [0], chatId at [1]
-        full_params = [adapter.account_id, real_chat_id] + list(params or [])
-
-        try:
-            result = await getattr(adapter.rpc, method)(*full_params)
-            return json.dumps(result, default=str)
-        except Exception as e:
-            return json.dumps({"error": str(e)})
-
-    async def _end_call_handler(args: dict, **kwargs) -> str:
-        if adapter is None or adapter._call_manager is None:
-            return json.dumps({"error": "No active call"})
-
-        # The AI is in a call — find the active session.
-        # There is typically only one active call at a time.
-        chat_ids = list(adapter._call_manager._chat_to_msg.keys())
-        if not chat_ids:
-            return json.dumps({"error": "No active call"})
-
-        success = await adapter._call_manager.request_hangup(chat_ids[0])
-        if success:
-            return json.dumps({"success": True, "message": "Call ended"})
-        return json.dumps({"error": "Failed to end call"})
-
-    async def _start_call_handler(args: dict, **kwargs) -> str:
-        args = args or {}
-        chat_token = args.get("chat_token")
-        # `opening` is the exact line spoken on connect; accept `topic` as alias.
-        opening = (args.get("opening") or args.get("topic") or "").strip()
-        if adapter is None or adapter._call_manager is None:
-            return json.dumps({"error": "Delta Chat not connected"})
-
-        if not opening:
-            return json.dumps({"error": "Provide 'opening' — the exact words to say when they pick up."})
-
-        real_chat_id = await _resolve_chat_token(state, adapter.rpc, adapter.account_id, chat_token)
-        if real_chat_id is None:
-            return json.dumps({"error": "Unknown chat_token — use the [dc:chat=...] value"})
-
-        try:
-            msg_id = await adapter._call_manager.start_call(str(real_chat_id), opening=opening)
-            return json.dumps({"success": True, "msg_id": msg_id,
-                               "message": "Call connected — the opening line is being "
-                                          "spoken and the conversation is live."})
-        except asyncio.TimeoutError:
-            return json.dumps({"error": "Call was not answered"})
-        except Exception as e:
-            logger.error("start_call failed: %s", e, exc_info=True)
-            return json.dumps({"error": f"Failed to start call: {e}"})
-
-    ctx.register_tool(
-        name="dc_rpc_spec",
-        toolset="deltachat",
-        schema={
-            "description": (
-                "Fetch the full OpenRPC specification of the running Delta Chat RPC server. "
-                "Lists every available method with parameter types and descriptions. "
-                "Only call this when the user explicitly asks for low-level Delta Chat API access. "
-                "Use dc_chat_rpc_spec instead when you only need chat-scoped methods."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-        handler=_spec_handler,
-        is_async=True,
-        emoji="📋",
-    )
-
-    ctx.register_tool(
-        name="dc_chat_rpc_spec",
-        toolset="deltachat",
-        schema={
-            "description": (
-                "Fetch the OpenRPC spec filtered to methods that accept a chatId parameter, "
-                "excluding all destructive operations. "
-                "Only call this when you are about to use dc_safe_rpc_call for an explicit user request "
-                "that cannot be handled by normal messaging tools."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-        handler=_chat_spec_handler,
-        is_async=True,
-        emoji="📋",
-    )
-
-    if os.getenv("DELTACHAT_ENABLE_RAW_RPC"):
-        ctx.register_tool(
-            name="dc_rpc_call",
-            toolset="deltachat",
-            schema={
-                "description": (
-                    "Call any Delta Chat RPC method directly by name and params. "
-                    "Use dc_rpc_spec first to see available methods. "
-                    "CAUTION: unrestricted access — can modify or delete account data. "
-                    "Prefer dc_safe_rpc_call for chat-scoped operations."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "method": {
-                            "type": "string",
-                            "description": (
-                                "RPC method name in snake_case (e.g. 'get_account_info'). "
-                                "Use dc_rpc_spec to see all available methods."
-                            ),
-                        },
-                        "params": {
-                            "type": "array",
-                            "description": "Full positional parameters. account_id is always 1.",
-                            "default": [],
-                        },
-                    },
-                    "required": ["method"],
-                },
-            },
-            handler=_call_handler,
-            is_async=True,
-            emoji="⚡",
-        )
-
-    ctx.register_tool(
-        name="dc_safe_rpc_call",
-        toolset="deltachat",
-        schema={
-            "description": (
-                "Call a chat-scoped Delta Chat RPC method safely. "
-                "Only use this when the user explicitly asks for a Delta Chat-specific operation "
-                "that cannot be done with the normal send, send_file, send_voice, or delete_message tools. "
-                "Do NOT call this for routine message handling, reading messages, or sending replies — "
-                "those go through the standard tools. "
-                "accountId and chatId are injected automatically from the chat_token. "
-                "Destructive methods are blocked. Use dc_chat_rpc_spec first to find the method name."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "method": {
-                        "type": "string",
-                        "description": (
-                            "RPC method name in snake_case (e.g. 'get_chat_contacts'). "
-                            "Must accept chatId. Use dc_chat_rpc_spec to browse available methods."
-                        ),
-                    },
-                    "chat_token": {
-                        "type": "string",
-                        "description": (
-                            "The opaque chat token from the [dc:chat=...] line "
-                            "in the current message. Never use a token from a different conversation."
-                        ),
-                    },
-                    "params": {
-                        "type": "array",
-                        "description": (
-                            "Extra positional parameters after accountId and chatId. "
-                            "accountId (always 1) and chatId are injected automatically."
-                        ),
-                        "default": [],
-                    },
-                },
-                "required": ["method", "chat_token"],
-            },
-        },
-        handler=_safe_call_handler,
-        is_async=True,
-        emoji="🔒",
-    )
-
-    ctx.register_tool(
-        name="dc_end_call",
-        toolset="deltachat",
-        schema={
-            "description": (
-                "End the active voice call. "
-                "The goodbye message is spoken first (via normal send), then this "
-                "tool waits until TTS finishes playing before disconnecting. "
-                "Only use this when the user explicitly says goodbye or asks to end the call. "
-                "No parameters needed — there is only one active call at a time."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {},
-            },
-        },
-        handler=_end_call_handler,
-        is_async=True,
-        emoji="📞",
-    )
-
-    ctx.register_tool(
-        name="dc_start_call",
-        toolset="deltachat",
-        schema={
-            "description": (
-                "Place an outgoing voice call to a Delta Chat contact and talk to them. "
-                "Use this to proactively call someone — e.g. from a scheduled/cron task "
-                "(a reminder, an alert, a check-in). Creates the WebRTC offer, rings the "
-                "contact, and blocks until they answer (or times out if unanswered). "
-                "Once connected you speak normally; the conversation runs like an incoming "
-                "call. Identify the recipient with the chat_token from one of their messages."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "chat_token": {
-                        "type": "string",
-                        "description": (
-                            "The opaque chat token from the [dc:chat=...] line in a message "
-                            "from the person to call. Never use a token from another conversation."
-                        ),
-                    },
-                    "opening": {
-                        "type": "string",
-                        "description": (
-                            "The EXACT words to say the instant they pick up "
-                            "(e.g. \"Hi Simon, quick reminder to take your medication.\"). "
-                            "Synthesized while the phone is still ringing and played "
-                            "immediately on answer — no startup delay. Write it as natural "
-                            "speech, not a topic label."
-                        ),
-                    },
-                },
-                "required": ["chat_token", "opening"],
-            },
-        },
-        handler=_start_call_handler,
-        is_async=True,
-        emoji="📞",
-    )

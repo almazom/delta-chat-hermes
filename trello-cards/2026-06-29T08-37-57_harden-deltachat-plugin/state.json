@@ -5,21 +5,16 @@
   "overall_status": "ready",
   "current_card": null,
   "current_stage": null,
-  "progress_percent": 63,
+  "progress_percent": 100,
   "started_at": null,
   "completed_at": null,
-  "updated_at": "2026-06-29T09:09:06.638708+00:00",
-  "done_count": 12,
+  "updated_at": "2026-06-29T09:27:24.558129+00:00",
+  "done_count": 19,
   "blocked_count": 0,
   "total_cards": 19,
   "total_sp": 40,
   "agile_states": {
-    "backlog": 5,
-    "in_progress": 0,
-    "code_review": 2,
-    "code_simplification": 0,
-    "auto_commit": 0,
-    "done": 12
+    "done": 19
   },
   "cards": {
     "TC-001": {
@@ -135,42 +130,58 @@
       ]
     },
     "TC-009": {
-      "status": "backlog",
+      "status": "done",
       "sp": 2,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T08:37:57Z"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T09:19:47.023955+00:00"
         }
       ]
     },
     "TC-010": {
-      "status": "backlog",
+      "status": "done",
       "sp": 3,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T08:37:57Z"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T09:19:47.023955+00:00"
         }
       ]
     },
     "TC-011": {
-      "status": "backlog",
+      "status": "done",
       "sp": 3,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T08:37:57Z"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T09:19:47.023955+00:00"
         }
       ]
     },
     "TC-012": {
-      "status": "backlog",
+      "status": "done",
       "sp": 3,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T08:37:57Z"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T09:19:47.023955+00:00"
         }
       ]
     },
@@ -231,7 +242,7 @@
       ]
     },
     "TC-017": {
-      "status": "code_review",
+      "status": "done",
       "sp": 2,
       "stage_history": [
         {
@@ -241,11 +252,15 @@
         {
           "stage": "code_review",
           "at": "2026-06-29T09:09:06.638708+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T09:19:47.023955+00:00"
         }
       ]
     },
     "TC-018": {
-      "status": "code_review",
+      "status": "done",
       "sp": 3,
       "stage_history": [
         {
@@ -255,16 +270,24 @@
         {
           "stage": "code_review",
           "at": "2026-06-29T09:09:06.638708+00:00"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T09:27:24.558129+00:00"
         }
       ]
     },
     "TC-019": {
-      "status": "backlog",
+      "status": "done",
       "sp": 2,
       "stage_history": [
         {
           "stage": "backlog",
           "at": "2026-06-29T08:37:57Z"
+        },
+        {
+          "stage": "done",
+          "at": "2026-06-29T09:27:24.558129+00:00"
         }
       ]
     }

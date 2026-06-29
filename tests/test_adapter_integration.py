@@ -94,14 +94,18 @@ class TestVersionCheckIntegration:
     @pytest.mark.asyncio
     async def test_version_compatible(self, mock_rpc):
         """Test version check with compatible version."""
-        mock_rpc.call = AsyncMock(return_value={"deltachat_version": MIN_DC_VERSION})
+        mock_rpc.get_system_info = AsyncMock(
+            return_value={"deltachat_core_version": MIN_DC_VERSION}
+        )
         result = await _check_dc_version(mock_rpc)
         assert result is True
 
     @pytest.mark.asyncio
     async def test_version_too_old(self, mock_rpc, caplog):
         """Test version check with too old version."""
-        mock_rpc.call = AsyncMock(return_value={"deltachat_version": "1.0.0"})
+        mock_rpc.get_system_info = AsyncMock(
+            return_value={"deltachat_core_version": "1.0.0"}
+        )
         with caplog.at_level("ERROR"):
             result = await _check_dc_version(mock_rpc)
         assert result is False
@@ -110,7 +114,9 @@ class TestVersionCheckIntegration:
     @pytest.mark.asyncio
     async def test_version_newer_warns(self, mock_rpc, caplog):
         """Test version check with newer version warns but allows."""
-        mock_rpc.call = AsyncMock(return_value={"deltachat_version": "3.0.0"})
+        mock_rpc.get_system_info = AsyncMock(
+            return_value={"deltachat_core_version": "3.0.0"}
+        )
         with caplog.at_level("WARNING"):
             result = await _check_dc_version(mock_rpc)
         assert result is True
@@ -133,21 +139,19 @@ class TestSendMessage:
         adapter.build_source = Mock()
         adapter.handle_message = AsyncMock()
 
-        # Mock RPC call to return message ID
-        mock_rpc.call = AsyncMock(return_value=123)
-
-        from adapter import SendResult
+        mock_rpc.send_msg = AsyncMock(return_value=123)
 
         result = await adapter.send("789", "Hello World")
 
         assert result.success is True
         assert result.message_id == "123"
 
-        # Verify RPC was called with correct params
-        mock_rpc.call.assert_called_with(
-            "send_text_message",
-            {"account_id": 1, "chat_id": 789, "message": "Hello World"},
-        )
+        # Verify RPC was called with account/chat and a MsgData payload.
+        assert mock_rpc.send_msg.call_count == 1
+        call_args = mock_rpc.send_msg.call_args[0]
+        assert call_args[0] == 1
+        assert call_args[1] == 789
+        assert call_args[2].text == "Hello World"
 
     @pytest.mark.asyncio
     async def test_send_message_not_connected(self, platform_config):
@@ -170,24 +174,18 @@ class TestSendMessage:
         adapter.rpc = mock_rpc
         adapter.account_id = 1
 
-        mock_rpc.call = AsyncMock(return_value=456)
-
-        from adapter import SendResult
+        mock_rpc.send_msg = AsyncMock(return_value=456)
 
         result = await adapter.send_file("789", "/path/to/file.xdc", "A file")
 
         assert result.success is True
         assert result.message_id == "456"
 
-        mock_rpc.call.assert_called_with(
-            "send_file",
-            {
-                "account_id": 1,
-                "chat_id": 789,
-                "file": "/path/to/file.xdc",
-                "caption": "A file",
-            },
-        )
+        call_args = mock_rpc.send_msg.call_args[0]
+        assert call_args[0] == 1
+        assert call_args[1] == 789
+        assert call_args[2].file == "/path/to/file.xdc"
+        assert call_args[2].text == "A file"
 
 
 class TestGetChatInfo:
@@ -200,7 +198,7 @@ class TestGetChatInfo:
         adapter.rpc = mock_rpc
         adapter.account_id = 1
 
-        mock_rpc.call = AsyncMock(
+        mock_rpc.get_basic_chat_info = AsyncMock(
             return_value={"chat_id": 789, "name": "Test Chat", "is_group": False}
         )
 
@@ -216,7 +214,7 @@ class TestGetChatInfo:
         adapter.rpc = mock_rpc
         adapter.account_id = 1
 
-        mock_rpc.call = AsyncMock(
+        mock_rpc.get_basic_chat_info = AsyncMock(
             return_value={"chat_id": 789, "name": "Group Chat", "is_group": True}
         )
 
@@ -232,7 +230,7 @@ class TestGetChatInfo:
         adapter.rpc = mock_rpc
         adapter.account_id = 1
 
-        mock_rpc.call = AsyncMock(side_effect=Exception("RPC error"))
+        mock_rpc.get_basic_chat_info = AsyncMock(side_effect=Exception("RPC error"))
 
         result = await adapter.get_chat_info("789")
 
@@ -250,36 +248,37 @@ class TestEventHandling:
         adapter.rpc = mock_rpc
         adapter.account_id = 1
 
-        # Mock RPC responses
-        def mock_call(method, params=None):
-            if method == "get_message":
-                return {
-                    "msg_id": 123,
-                    "text": "Test message",
-                    "from_id": 456,
-                    "timestamp": 1234567890,
-                    "msg_type": "TEXT",
-                }
-            elif method == "get_chat":
-                return {"chat_id": 789, "name": "Test Chat", "is_group": False}
-            elif method == "get_contact":
-                return {"contact_id": 456, "name": "Test User"}
-            return {}
+        mock_rpc.get_message = AsyncMock(
+            return_value={
+                "msg_id": 123,
+                "text": "Test message",
+                "from_id": 456,
+                "timestamp": 1234567890,
+                "view_type": "Text",
+            }
+        )
+        mock_rpc.get_basic_chat_info = AsyncMock(
+            return_value={"chat_id": 789, "name": "Test Chat", "is_group": False}
+        )
+        mock_rpc.get_contact = AsyncMock(
+            return_value={"contact_id": 456, "name": "Test User"}
+        )
+        mock_rpc.markseen_msgs = AsyncMock()
 
-        mock_rpc.call = AsyncMock(side_effect=mock_call)
         adapter._running = True
         adapter._mark_connected = Mock()
         adapter._mark_disconnected = Mock()
         adapter.handle_message = AsyncMock()
 
-        # Process an incoming message event
-        event = {"event_type": "INCOMING_MSG", "chat_id": 789, "msg_id": 123}
+        # Process an incoming message event (adapter uses EventType enum values)
+        event = {"kind": "IncomingMsg", "chat_id": 789, "msg_id": 123}
         await adapter._handle_dc_event(event)
 
-        # Verify message was handled
+        # Verify message was handled. The adapter appends a [dc:chat=...] token.
         assert adapter.handle_message.called
         call_args = adapter.handle_message.call_args[0][0]
-        assert call_args.text == "Test message"
+        assert call_args.text.startswith("Test message")
+        assert "[dc:chat=" in call_args.text
         assert call_args.message_id == "123"
 
     @pytest.mark.asyncio
@@ -291,7 +290,7 @@ class TestEventHandling:
         adapter._running = True
 
         with caplog.at_level("DEBUG"):
-            event = {"event_type": "MSG_DELIVERED", "msg_id": 123}
+            event = {"kind": "MsgDelivered", "msg_id": 123}
             await adapter._handle_dc_event(event)
 
         assert "delivered" in caplog.text.lower()
@@ -305,7 +304,7 @@ class TestEventHandling:
         adapter._running = True
 
         with caplog.at_level("INFO"):
-            event = {"event_type": "IncomingCall"}
+            event = {"kind": "IncomingCall"}
             await adapter._handle_dc_event(event)
 
         assert "call" in caplog.text.lower()
@@ -319,7 +318,7 @@ class TestEventHandling:
         adapter._running = True
 
         with caplog.at_level("DEBUG"):
-            event = {"event_type": "UNKNOWN_EVENT"}
+            event = {"kind": "UNKNOWN_EVENT"}
             await adapter._handle_dc_event(event)
 
         assert "unhandled" in caplog.text.lower()
@@ -444,28 +443,18 @@ class TestLocationSending:
         adapter.rpc = mock_rpc
         adapter.account_id = 1
 
-        mock_rpc.call = AsyncMock(return_value=123)
-
-        from adapter import SendResult
+        mock_rpc.send_msg = AsyncMock(return_value=123)
 
         result = await adapter.send_location("789", 52.5200, 13.4050, "☕ Coffee")
 
         assert result.success is True
         assert result.message_id == "123"
 
-        # Verify RPC was called with correct params
-        mock_rpc.call.assert_called_with(
-            "send_msg",
-            {
-                "account_id": 1,
-                "chat_id": 789,
-                "data": {
-                    "text": "☕ Coffee",
-                    "location": [13.4050, 52.5200],
-                    "viewtype": "Text",
-                },
-            },
-        )
+        call_args = mock_rpc.send_msg.call_args[0]
+        assert call_args[0] == 1
+        assert call_args[1] == 789
+        assert call_args[2].text == "☕ Coffee"
+        assert call_args[2].location == (52.5200, 13.4050)
 
     @pytest.mark.asyncio
     async def test_send_location_with_text_poi(self, platform_config, mock_rpc):
@@ -474,28 +463,18 @@ class TestLocationSending:
         adapter.rpc = mock_rpc
         adapter.account_id = 1
 
-        mock_rpc.call = AsyncMock(return_value=456)
-
-        from adapter import SendResult
+        mock_rpc.send_msg = AsyncMock(return_value=456)
 
         result = await adapter.send_location("789", 40.7128, -74.0060, "Coffee Shop")
 
         assert result.success is True
         assert result.message_id == "456"
 
-        # Verify text POI is sent
-        mock_rpc.call.assert_called_with(
-            "send_msg",
-            {
-                "account_id": 1,
-                "chat_id": 789,
-                "data": {
-                    "text": "Coffee Shop",
-                    "location": [-74.0060, 40.7128],
-                    "viewtype": "Text",
-                },
-            },
-        )
+        call_args = mock_rpc.send_msg.call_args[0]
+        assert call_args[0] == 1
+        assert call_args[1] == 789
+        assert call_args[2].text == "Coffee Shop"
+        assert call_args[2].location == (40.7128, -74.0060)
 
     @pytest.mark.asyncio
     async def test_send_location_not_connected(self, platform_config):

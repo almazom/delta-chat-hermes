@@ -85,7 +85,7 @@
       "capabilities": []
     },
     "TC-009": {
-      "status": "backlog",
+      "status": "done",
       "epic": "03-module-refactor",
       "sp": 2,
       "deps": [
@@ -95,7 +95,7 @@
       "capabilities": []
     },
     "TC-010": {
-      "status": "backlog",
+      "status": "done",
       "epic": "03-module-refactor",
       "sp": 3,
       "deps": [
@@ -106,7 +106,7 @@
       "capabilities": []
     },
     "TC-011": {
-      "status": "backlog",
+      "status": "done",
       "epic": "03-module-refactor",
       "sp": 3,
       "deps": [],
@@ -114,7 +114,7 @@
       "capabilities": []
     },
     "TC-012": {
-      "status": "backlog",
+      "status": "done",
       "epic": "03-module-refactor",
       "sp": 3,
       "deps": [
@@ -164,7 +164,7 @@
       "capabilities": []
     },
     "TC-017": {
-      "status": "review",
+      "status": "done",
       "epic": "05-automation-tests",
       "sp": 2,
       "deps": [
@@ -175,7 +175,7 @@
       "capabilities": []
     },
     "TC-018": {
-      "status": "review",
+      "status": "done",
       "epic": "05-automation-tests",
       "sp": 3,
       "deps": [
@@ -186,7 +186,7 @@
       "capabilities": []
     },
     "TC-019": {
-      "status": "backlog",
+      "status": "done",
       "epic": "05-automation-tests",
       "sp": 2,
       "deps": [
@@ -289,16 +289,52 @@
       "from": "backlog",
       "to": "review",
       "at": "2026-06-29T09:08:52.162598+00:00"
+    },
+    {
+      "card": "TC-009",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:19:47.023955+00:00"
+    },
+    {
+      "card": "TC-010",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:19:47.023955+00:00"
+    },
+    {
+      "card": "TC-011",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:19:47.023955+00:00"
+    },
+    {
+      "card": "TC-012",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:19:47.023955+00:00"
+    },
+    {
+      "card": "TC-017",
+      "from": "review",
+      "to": "done",
+      "at": "2026-06-29T09:19:47.023955+00:00"
+    },
+    {
+      "card": "TC-018",
+      "from": "review",
+      "to": "done",
+      "at": "2026-06-29T09:27:24.558129+00:00"
+    },
+    {
+      "card": "TC-019",
+      "from": "backlog",
+      "to": "done",
+      "at": "2026-06-29T09:27:24.558129+00:00"
     }
   ],
   "blockers": [],
   "status_counts": {
-    "backlog": 5,
-    "in_progress": 0,
-    "review": 2,
-    "simplification": 0,
-    "auto_commit": 0,
-    "done": 12,
-    "blocked": 0
+    "done": 19
   }
 }

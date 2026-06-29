@@ -99,6 +99,53 @@ class MockHermesConfig:
         return os.environ.get("HERMES_HOME", "/tmp/hermes-test")
 
 
+class MockMessageViewtype(Enum):
+    """Mock of deltachat2.types.MessageViewtype."""
+
+    TEXT = "Text"
+    IMAGE = "Image"
+    AUDIO = "Audio"
+    VIDEO = "Video"
+    VOICE = "Voice"
+    FILE = "File"
+
+
+@dataclass
+class MockMsgData:
+    """Mock of deltachat2.types.MsgData."""
+
+    text: Optional[str] = None
+    html: Optional[str] = None
+    viewtype: Optional[Any] = None
+    file: Optional[str] = None
+    location: Optional[Any] = None
+    quoted_message_id: Optional[Any] = None
+
+
+class MockEventType(str, Enum):
+    """Mock of deltachat2.types.EventType.
+
+    Subclassing str lets enum members compare equal to their string values,
+    matching the real deltachat2 API where event kinds are enum instances.
+    """
+
+    INCOMING_MSG = "IncomingMsg"
+    MSG_DELIVERED = "MsgDelivered"
+    MSG_FAILED = "MsgFailed"
+    INCOMING_CALL = "IncomingCall"
+    CALL_ENDED = "CallEnded"
+    OUTGOING_CALL_ACCEPTED = "OutgoingCallAccepted"
+    INCOMING_CALL_ACCEPTED = "IncomingCallAccepted"
+
+
+class MockDeltaChat2Types:
+    """Mock of deltachat2.types module."""
+
+    MsgData = MockMsgData
+    MessageViewtype = MockMessageViewtype
+    EventType = MockEventType
+
+
 class MockBasePlatformAdapter:
     """Mock of gateway.platforms.base.BasePlatformAdapter."""
 
@@ -169,6 +216,12 @@ gateway_module.platforms = gateway_platforms
 gateway_module.platforms.base = gateway_platforms_base
 gateway_module.config = gateway_config_module
 
+# Mock deltachat2 types so adapter imports resolve without the real package.
+deltachat2_module = MagicMock()
+deltachat2_module.types = MockDeltaChat2Types()
+sys.modules["deltachat2"] = deltachat2_module
+sys.modules["deltachat2.types"] = MockDeltaChat2Types()
+
 
 # ---------------------------------------------------------------------------
 # Pytest fixtures
@@ -206,4 +259,11 @@ def mock_rpc():
     rpc.call = AsyncMock()
     rpc.start = AsyncMock()
     rpc.close = Mock()
+    # Common direct RPC methods used by the adapter are awaited as coroutines.
+    rpc.get_system_info = AsyncMock()
+    rpc.send_msg = AsyncMock()
+    rpc.get_basic_chat_info = AsyncMock()
+    rpc.get_message = AsyncMock()
+    rpc.get_contact = AsyncMock()
+    rpc.markseen_msgs = AsyncMock()
     return rpc

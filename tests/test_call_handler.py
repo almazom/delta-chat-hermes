@@ -18,6 +18,10 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vendor"))
 
+# These tests require the optional aiortc/av dependencies from the nix dev shell.
+pytest.importorskip("av")
+pytest.importorskip("aiortc")
+
 import call_handler as ch  # noqa: E402
 
 
