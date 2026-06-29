@@ -1588,6 +1588,10 @@ class CallManager:
     def has_active_call(self, chat_id: str) -> bool:
         return chat_id in self._chat_to_msg
 
+    def active_chat_ids(self) -> list:
+        """Return the chat IDs that currently have an active call."""
+        return list(self._chat_to_msg.keys())
+
     @staticmethod
     def is_call_thread(thread_id) -> bool:
         """Whether a reply with this thread_id belongs to the call conversation

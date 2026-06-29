@@ -11,6 +11,33 @@ from chat_tokens import DESTRUCTIVE_METHODS, resolve_chat_token
 logger = logging.getLogger("hermes_plugins.deltachat.tools")
 
 
+# Explicit allowlist of read-only, chat-scoped RPC methods for dc_safe_rpc_call.
+# Defense-in-depth: DESTRUCTIVE_METHODS and delete_/remove_ prefixes are still blocked.
+SAFE_CHAT_METHODS = frozenset({
+    "get_basic_chat_info",
+    "get_chat_contacts",
+    "get_chat_description",
+    "get_chat_encryption_info",
+    "get_chat_ephemeral_timer",
+    "get_chat_media",
+    "get_chat_securejoin_qr_code",
+    "get_chat_securejoin_qr_code_svg",
+    "get_draft",
+    "get_first_unread_message_of_chat",
+    "get_fresh_msg_cnt",
+    "get_full_chat_by_id",
+    "get_locations",
+    "get_message_ids",
+    "get_message_list_items",
+    "get_past_chat_contacts",
+    "get_similar_chat_ids",
+    "is_chat_muted",
+    "is_sending_locations_to_chat",
+    "can_send",
+    "search_messages",
+})
+
+
 async def _fetch_spec(rpc_server_path: str, spec_cache: Optional[dict]) -> dict:
     """Fetch and cache the OpenRPC spec from deltachat-rpc-server --openrpc."""
     if spec_cache is not None:
@@ -74,10 +101,8 @@ def register_rpc_tools(ctx, adapter) -> None:
             return f"Error: {e}"
         safe_methods = [
             m for m in spec.get("methods", [])
-            if any(p["name"] == "chatId" for p in m.get("params", []))
-            and m["name"] not in DESTRUCTIVE_METHODS
-            and not m["name"].startswith("delete_")
-            and not m["name"].startswith("remove_")
+            if m["name"] in SAFE_CHAT_METHODS
+            and any(p["name"] == "chatId" for p in m.get("params", []))
         ]
         return json.dumps({**spec, "methods": safe_methods}, indent=2)
 
@@ -90,16 +115,18 @@ def register_rpc_tools(ctx, adapter) -> None:
         if adapter is None or adapter.rpc is None:
             return json.dumps({"error": "Delta Chat is not connected"})
 
-        real_chat_id = await resolve_chat_token(store, adapter.rpc, adapter.account_id, chat_token)
-        if real_chat_id is None:
-            return json.dumps({"error": "Unknown chat_token — use the [dc:chat=...] value from your message"})
-
+        # Reject disallowed methods before spending an RPC round-trip on token resolution.
         if (
-            method in DESTRUCTIVE_METHODS
+            method not in SAFE_CHAT_METHODS
+            or method in DESTRUCTIVE_METHODS
             or method.startswith("delete_")
             or method.startswith("remove_")
         ):
-            return json.dumps({"error": f"'{method}' is not allowed in safe mode"})
+            return json.dumps({"error": f"'{method}' is not allowed in safe mode — use dc_rpc_spec for unrestricted access"})
+
+        real_chat_id = await resolve_chat_token(store, adapter.rpc, adapter.account_id, chat_token)
+        if real_chat_id is None:
+            return json.dumps({"error": "Unknown chat_token — use the [dc:chat=...] value from your message"})
 
         try:
             spec = await _get_spec()
@@ -123,14 +150,19 @@ def register_rpc_tools(ctx, adapter) -> None:
             return json.dumps({"error": str(e)})
 
     async def _end_call_handler(args: dict, **kwargs) -> str:
+        args = args or {}
+        chat_token = args.get("chat_token")
         if adapter is None or adapter._call_manager is None:
             return json.dumps({"error": "No active call"})
 
-        chat_ids = list(adapter._call_manager._chat_to_msg.keys())
-        if not chat_ids:
-            return json.dumps({"error": "No active call"})
+        real_chat_id = await resolve_chat_token(store, adapter.rpc, adapter.account_id, chat_token)
+        if real_chat_id is None:
+            return json.dumps({"error": "Unknown chat_token — use the [dc:chat=...] value from your message"})
 
-        success = await adapter._call_manager.request_hangup(chat_ids[0])
+        if str(real_chat_id) not in adapter._call_manager.active_chat_ids():
+            return json.dumps({"error": "No active call for this chat"})
+
+        success = await adapter._call_manager.request_hangup(str(real_chat_id))
         if success:
             return json.dumps({"success": True, "message": "Call ended"})
         return json.dumps({"error": "Failed to end call"})
@@ -195,6 +227,10 @@ def register_rpc_tools(ctx, adapter) -> None:
     )
 
     if os.getenv("DELTACHAT_ENABLE_RAW_RPC"):
+        logger.warning(
+            "DELTACHAT_ENABLE_RAW_RPC is set: dc_rpc_call grants unrestricted RPC access. "
+            "Only enable in trusted debugging contexts."
+        )
         ctx.register_tool(
             name="dc_rpc_call",
             toolset="deltachat",
@@ -285,9 +321,21 @@ def register_rpc_tools(ctx, adapter) -> None:
                 "The goodbye message is spoken first (via normal send), then this "
                 "tool waits until TTS finishes playing before disconnecting. "
                 "Only use this when the user explicitly says goodbye or asks to end the call. "
-                "No parameters needed — there is only one active call at a time."
+                "Identify the call to end with the chat_token from the active chat."
             ),
-            "parameters": {"type": "object", "properties": {}},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chat_token": {
+                        "type": "string",
+                        "description": (
+                            "The opaque chat token from the [dc:chat=...] line in a message "
+                            "from the active call. Never use a token from another conversation."
+                        ),
+                    },
+                },
+                "required": ["chat_token"],
+            },
         },
         handler=_end_call_handler,
         is_async=True,
